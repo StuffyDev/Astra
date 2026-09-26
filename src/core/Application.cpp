@@ -16,9 +16,20 @@
 #include <cmath>
 
 Application::Application(const AppOptions& options) {
+    // Single-exe игра? Если к этому бинарнику приклеен бандл — распаковываем
+    // и работаем из папки рядом с exe, всегда в режиме плеера.
+    AppOptions opts = options;
+    {
+        std::string bundleDir = AstraBundleExtract();
+        if (!bundleDir.empty()) {
+            std::error_code ec;
+            std::filesystem::current_path(bundleDir, ec);
+            opts.player = true; // сцена подберётся из game.json в распакованной папке
+        }
+    }
     ConsoleLog::CaptureStdio(); // всё, что пишется в cout/cerr, видно в панели Console
-    m_Options = options;
-    m_PlayerMode = options.player;
+    m_Options = opts;
+    m_PlayerMode = opts.player;
     m_Window = std::make_unique<Window>(1920, 1080,
                                         m_PlayerMode ? "Astra Player" : "Astra");
 
@@ -56,6 +67,7 @@ Application::Application(const AppOptions& options) {
 
     m_Ctx = { m_Camera.get(), m_SceneManager.get(), m_Scene.get(), m_Serializer.get(),
               m_Renderer.get(), m_ProjectManager.get(), &m_EditorState };
+    m_Ctx.app = this;
 
     // Стартовая сцена: в плеере — из --scene / game.json, в редакторе — default.scene
     if (m_PlayerMode) {
@@ -157,6 +169,31 @@ void Application::SeedDemoScene() {
 
 Application::~Application() {
     Audio::Shutdown();
+}
+
+// ===== Undo/redo =====
+void Application::PushUndoSnapshot(const SceneManager::SceneSnapshot& snap) {
+    m_UndoStack.push_back(snap);
+    if (m_UndoStack.size() > 60) m_UndoStack.pop_front();
+    m_RedoStack.clear();
+}
+
+bool Application::Undo() {
+    if (m_UndoStack.empty() || m_EditorState != EditorState::Edit) return false;
+    m_RedoStack.push_back(m_SceneManager->TakeSnapshot());
+    m_SceneManager->Restore(m_UndoStack.back());
+    m_UndoStack.pop_back();
+    std::cout << "[Undo] шаг назад\n";
+    return true;
+}
+
+bool Application::Redo() {
+    if (m_RedoStack.empty() || m_EditorState != EditorState::Edit) return false;
+    m_UndoStack.push_back(m_SceneManager->TakeSnapshot());
+    m_SceneManager->Restore(m_RedoStack.back());
+    m_RedoStack.pop_back();
+    std::cout << "[Redo] шаг вперёд\n";
+    return true;
 }
 
 void Application::Run() {
@@ -415,6 +452,14 @@ void Application::HandleFileDrops() {
 void Application::Update(float deltaTime) {
     Audio::NewFrame();
 
+    // Спрайт-анимации: кадры крутятся и в Edit (превью), и в Play; Pause — стоп
+    if (m_EditorState != EditorState::Pause) {
+        for (auto& e : m_SceneManager->GetEntities()) {
+            if (e.animation.active && e.animation.cols >= 1 && e.animation.rows >= 1)
+                e.animTime += deltaTime;
+        }
+    }
+
     // Обработка переходов Edit/Play/Pause
     if (m_EditorState != m_LastEditorState) {
         if (m_EditorState == EditorState::Play && m_LastEditorState == EditorState::Edit) {
@@ -423,6 +468,11 @@ void Application::Update(float deltaTime) {
             Scripting::LoadForScene(m_SceneManager->GetEntities());
             Scripting::SyncInstances(m_SceneManager->GetEntities());
             m_AudioStarted.clear();
+            for (auto& e : m_SceneManager->GetEntities()) {
+                // анимации: playOnAwake как у звука; старт с нуля
+                e.animation.active = e.animation.playOnAwake;
+                e.animTime = 0.0f;
+            }
             for (const auto& e : m_SceneManager->GetEntities()) {
                 if (e.active && !e.audio.path.empty() && e.audio.playOnAwake) {
                     uint32_t vid = e.audio.loop
@@ -469,6 +519,21 @@ void Application::Update(float deltaTime) {
     // Скрипты: Update раз в кадр, как Unity MonoBehaviour (не в фиксированном шаге)
     Scripting::SyncInstances(m_SceneManager->GetEntities());
     Scripting::Update(deltaTime, m_SceneManager->GetEntities());
+
+    // Менеджер сцен: LoadScene() из скрипта — переключаем уровень
+    std::string nextScene;
+    if (Scripting::ConsumeSceneChange(nextScene)) {
+        std::error_code ec;
+        if (std::filesystem::exists(nextScene, ec)) {
+            Scripting::Unload();               // старые инстансы/библиотеки долой
+            m_Serializer->Load(m_SceneManager.get(), nextScene);
+            Scripting::LoadForScene(m_SceneManager->GetEntities());
+            Scripting::SyncInstances(m_SceneManager->GetEntities());
+            std::cout << "[Scene] loaded: " << nextScene << "\n";
+        } else {
+            std::cerr << "[Scene] not found: " << nextScene << "\n";
+        }
+    }
 
     // playOnAwake для сущностей, появившихся уже в Play (инстансы префабов)
     for (const auto& e : m_SceneManager->GetEntities()) {

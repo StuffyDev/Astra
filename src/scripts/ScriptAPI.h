@@ -5,6 +5,7 @@
 #include "ecs/Entity.h"
 #include <cstdint>
 #include <string>
+#include <random>
 #include <glm/glm.hpp>
 
 class SceneManager;
@@ -29,6 +30,12 @@ protected:
     Entity* Owner();
     ::SceneManager* Scene();
 
+    // Серелиазуемые переменные (как [SerializeField] в Unity): объявить в Start(),
+    // ползунок появится в Inspector; значение живёт в сцене и доступно в Update()
+    void DefineVar(const char* name, float defaultValue); // если уже есть — не трогает
+    float GetVar(const char* name, float fallback = 0.0f) const;
+    void SetVar(const char* name, float value);
+
     // Удобные хелперы над Owner()
     void Translate(const glm::vec2& localDelta);      // сдвиг в локальных координатах родителя
     void SetWorldPosition(const glm::vec2& world);    // позиция в мире (с учётом цепочки)
@@ -50,3 +57,42 @@ public:
 // Одна скрипт-фабрика на файл: движок компилирует .so и грузит символ CreateGameScript
 #define SCRIPT_ENTRY(Class) \
     extern "C" Script* CreateGameScript() { return new Class(); }
+
+// ===== Хелперы =====
+// Лог в панель Console движка (реализация на стороне движка)
+void Log(const std::string& message);
+// Уничтожить сущность по id (например, Owner()->id). Возвращает false, если её нет
+bool DestroyEntity(uint32_t id);
+// Переключение сцены во время Play/игры: движок загрузит файл и пересоздаст скрипты
+void LoadScene(const std::string& scenePath);
+
+// Импulse приложен к скорости (F*dt-подобный «толчок», как AddForce в Unity)
+inline void AddForce(Entity* e, const glm::vec2& impulse) {
+    if (!e) return;
+    float m = e->rigidbody.mass > 0.01f ? e->rigidbody.mass : 0.01f;
+    e->rigidbody.velocity += impulse / m;
+}
+
+// Спрайт-анимация: PlayAnimation(e) с fromStart=true — перемотка на первый кадр
+inline void PlayAnimation(Entity* e, bool fromStart = false) {
+    if (!e) return;
+    if (fromStart) e->animTime = 0.0f;
+    e->animation.active = true;
+}
+inline void StopAnimation(Entity* e) { if (e) e->animation.active = false; }
+inline bool IsAnimating(const Entity* e) { return e && e->animation.active; }
+
+inline float Lerp(float a, float b, float t) { return a + (b - a) * t; }
+inline float Clamp(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
+inline float Radians(float deg) { return deg * 3.14159265358979f / 180.0f; }
+inline float Degrees(float rad) { return rad * 180.0f / 3.14159265358979f; }
+
+// Случайные числа (свой движок на .so, не зависит от порядка загрузки)
+inline float RandomRange(float a, float b) {
+    static std::mt19937 rng(std::random_device{}());
+    return std::uniform_real_distribution<float>(a, b)(rng);
+}
+inline int RandomInt(int a, int bInclusive) {
+    static std::mt19937 rng(std::random_device{}());
+    return std::uniform_int_distribution<int>(a, bInclusive)(rng);
+}

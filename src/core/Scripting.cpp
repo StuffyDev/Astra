@@ -3,6 +3,7 @@
 #include "ecs/SceneManager.h"
 #include "ecs/Transforms.h"
 #include "ecs/Physics.h"
+#include "utils/ConsoleLog.h"
 #include <dlfcn.h>
 #include <cstdio>
 #include <cstdlib>
@@ -39,6 +40,7 @@ std::vector<std::string> g_Errors;
 
 float g_Delta = 0.0f, g_UnscaledDelta = 0.0f, g_Elapsed = 0.0f, g_TimeScale = 1.0f;
 float g_DefaultTimeScale = 1.0f;
+std::string g_PendingScene;   // запрос LoadScene из скрипта, обрабатывает Application
 
 Script* CreateInstance(const std::string& path, uint32_t ownerId) {
     auto it = g_Libs.find(path);
@@ -236,6 +238,48 @@ bool Scripting::PrecompileScript(const std::string& cppPath, std::string& outSoP
                                  std::string& outError) {
     outError.clear();
     return CompileScript(cppPath, outSoPath, outError);
+}
+
+bool Scripting::ConsumeSceneChange(std::string& outPath) {
+    if (g_PendingScene.empty()) return false;
+    outPath = g_PendingScene;
+    g_PendingScene.clear();
+    return true;
+}
+
+// ==== Хелперы скриптов (экспортируются бинарником) ====
+void Log(const std::string& message) {
+    ConsoleLog::Push(message, false);
+}
+
+bool DestroyEntity(uint32_t id) {
+    if (!g_Scene) return false;
+    bool ok = g_Scene->RemoveEntityById(id);
+    if (ok) ConsoleLog::Push("[Script] DestroyEntity(" + std::to_string(id) + ")", false);
+    return ok;
+}
+
+void Script::DefineVar(const char* name, float defaultValue) {
+    Entity* e = Owner();
+    if (!e || !name) return;
+    if (!e->vars.count(name)) e->vars[name] = defaultValue;
+}
+
+float Script::GetVar(const char* name, float fallback) const {
+    const Entity* e = FindById(ownerId);
+    if (!e || !name) return fallback;
+    auto it = e->vars.find(name);
+    return it != e->vars.end() ? it->second : fallback;
+}
+
+void Script::SetVar(const char* name, float value) {
+    Entity* e = FindById(ownerId);
+    if (!e || !name) return;
+    e->vars[name] = value;
+}
+
+void LoadScene(const std::string& scenePath) {
+    g_PendingScene = scenePath;
 }
 
 void Scripting::SetScene(SceneManager* sm) {

@@ -1,4 +1,5 @@
 #include "core/GUI.h"
+#include "core/Application.h" // ctx.app->Undo/Redo (Application.h сам включает GUI.h — цикла нет)
 #include "core/Scene.h"
 #include "core/SceneSerializer.h"
 #include "core/Renderer.h"
@@ -94,9 +95,9 @@ static void FnvStr(uint64_t& h, const std::string& s) {
     h ^= 0xFF; // разделитель строк
 }
 
-static uint64_t ComputeSceneSignature(SceneManager* sm) {
+static uint64_t ComputeSignatureFor(const std::vector<Entity>& ents) {
     uint64_t h = 0xcbf29ce484222325ULL;
-    for (const Entity& e : sm->GetEntities()) {
+    for (const Entity& e : ents) {
         FnvUpdate(h, &e.id, sizeof(e.id));
         FnvUpdate(h, &e.parentId, sizeof(e.parentId));
         FnvUpdate(h, &e.active, sizeof(e.active));
@@ -107,7 +108,20 @@ static uint64_t ComputeSceneSignature(SceneManager* sm) {
         FnvUpdate(h, &e.sprite.color, sizeof(e.sprite.color));
         FnvStr(h, e.sprite.texturePath);
         FnvStr(h, e.sprite.shaderPath);
+        FnvUpdate(h, &e.sprite.materialParams, sizeof(e.sprite.materialParams));
+        FnvUpdate(h, &e.sprite.materialColor, sizeof(e.sprite.materialColor));
+        FnvUpdate(h, &e.animation.active, sizeof(e.animation.active));
+        FnvStr(h, e.animation.texturePath);
+        FnvUpdate(h, &e.animation.cols, sizeof(e.animation.cols));
+        FnvUpdate(h, &e.animation.rows, sizeof(e.animation.rows));
+        FnvUpdate(h, &e.animation.fps, sizeof(e.animation.fps));
+        FnvUpdate(h, &e.animation.loop, sizeof(e.animation.loop));
+        FnvUpdate(h, &e.animation.playOnAwake, sizeof(e.animation.playOnAwake));
         FnvStr(h, e.scriptPath);
+        for (const auto& [varName, varValue] : e.vars) {
+            FnvStr(h, varName);
+            FnvUpdate(h, &varValue, sizeof(varValue));
+        }
         FnvStr(h, e.audio.path);
         FnvUpdate(h, &e.audio.volume, sizeof(e.audio.volume));
         FnvUpdate(h, &e.audio.pitch, sizeof(e.audio.pitch));
@@ -131,6 +145,10 @@ static uint64_t ComputeSceneSignature(SceneManager* sm) {
         }
     }
     return h;
+}
+
+static uint64_t ComputeSceneSignature(SceneManager* sm) {
+    return ComputeSignatureFor(sm->GetEntities());
 }
 
 // Хлебные крошки от корня rootDir (например "assets") до path
@@ -292,6 +310,11 @@ void GUI::ApplyProject(EditorContext& ctx) {
 void GUI::MarkSceneSaved(EditorContext& ctx) {
     m_SceneSignature = ComputeSceneSignature(ctx.sceneManager);
     m_SceneDirty = false;
+    // undo: сохранённое состояние — новая точка отсчёта
+    m_UndoBaseline = ctx.sceneManager->TakeSnapshot();
+    m_UndoBaselineSig = m_SceneSignature;
+    m_UndoBaselineValid = true;
+    m_WasChangedVsBaseline = false;
 }
 
 void GUI::RefreshSceneDirty(EditorContext& ctx) {
@@ -303,7 +326,20 @@ void GUI::RefreshSceneDirty(EditorContext& ctx) {
         MarkSceneSaved(ctx);
         return;
     }
-    m_SceneDirty = ComputeSceneSignature(ctx.sceneManager) != m_SceneSignature;
+    uint64_t sig = ComputeSceneSignature(ctx.sceneManager);
+    m_SceneDirty = sig != m_SceneSignature;
+
+    // Undo: один снимок «до правок» на пачку изменений (первый кадр отличия от baseline)
+    if (!m_UndoBaselineValid) {
+        m_UndoBaseline = ctx.sceneManager->TakeSnapshot();
+        m_UndoBaselineSig = sig;
+        m_UndoBaselineValid = true;
+        m_WasChangedVsBaseline = false;
+    }
+    bool changed = sig != m_UndoBaselineSig;
+    if (changed && !m_WasChangedVsBaseline && ctx.app)
+        ctx.app->PushUndoSnapshot(m_UndoBaseline);
+    m_WasChangedVsBaseline = changed;
 }
 
 void GUI::SaveSceneNow(EditorContext& ctx) {
@@ -430,6 +466,43 @@ void GUI::HandleHotkeys(EditorContext& ctx) {
         if (sel >= 0) sm->DuplicateSubtree(static_cast<size_t>(sel));
         return;
     }
+    if (ctrl && (in.WasKeyPressed(GLFW_KEY_Z) || in.WasKeyPressed(GLFW_KEY_Y))) {
+        // Ctrl+Z — назад, Ctrl+Shift+Z / Ctrl+Y — вперёд
+        if (ctx.app) {
+            bool ok = (in.WasKeyPressed(GLFW_KEY_Y) || shift) ? ctx.app->Redo() : ctx.app->Undo();
+            if (ok) {
+                m_UndoBaseline = sm->TakeSnapshot();
+                m_UndoBaselineSig = ComputeSceneSignature(sm);
+                m_WasChangedVsBaseline = false;
+            }
+        }
+        return;
+    }
+    if (ctrl && in.WasKeyPressed(GLFW_KEY_C)) {
+        if (!m_ProjectPanelFocused && sel >= 0) {
+            m_Clipboard = sm->GetSubtree(static_cast<size_t>(sel));
+            std::cout << "[Copy] " << m_Clipboard.size() << " сущностей в буфере\n";
+        }
+        return;
+    }
+    if (ctrl && in.WasKeyPressed(GLFW_KEY_V)) {
+        if (sel >= 0 || !m_Clipboard.empty()) {
+            if (!m_Clipboard.empty()) {
+                std::vector<Entity> protos = m_Clipboard;
+                std::unordered_map<uint32_t, uint32_t> remap;
+                uint32_t t = 1;
+                for (auto& e : protos) remap[e.id] = t++;
+                for (auto& e : protos) {
+                    uint32_t oldParent = e.parentId;
+                    e.id = remap[e.id];
+                    e.parentId = remap.count(oldParent) ? remap[oldParent] : 0;
+                }
+                int idx = sm->InstantiateProtos(protos, glm::vec2(40.0f, -40.0f));
+                if (idx >= 0) sm->SetSelectedEntity(idx);
+            }
+        }
+        return;
+    }
     if (ctrl && (in.WasKeyPressed(GLFW_KEY_UP) || in.WasKeyPressed(GLFW_KEY_DOWN))) {
         // перестановка среди сиблингов (как Ctrl+PageUp/PageDown в Unity)
         if (sel >= 0) {
@@ -496,6 +569,16 @@ void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
     Scene* scene = ctx.scene;
     Camera* camera = ctx.camera;
     EditorState& state = *ctx.state;
+
+    // Restart: кадр в Edit (Application сделает cleanup) — затем снова Play
+    if (m_PendingRestart && state == EditorState::Edit) {
+        m_PendingRestart = false;
+        state = EditorState::Play;
+    }
+
+    static float fpsEma = 60.0f;
+    fpsEma = fpsEma * 0.95f + (1.0f / std::max(deltaTime, 1e-5f)) * 0.05f;
+    m_FpsEma = fpsEma;
 
     HandleHotkeys(ctx);
     UpdateGameCamera(sceneManager);
@@ -648,6 +731,8 @@ void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
         ImGui::BeginDisabled(state == EditorState::Edit);
         if (ImGui::Button("Stop")) state = EditorState::Edit;
         ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Restart")) { m_PendingRestart = true; state = EditorState::Edit; }
 
         if (state != EditorState::Edit) {
             ImGui::SameLine();
@@ -656,15 +741,17 @@ void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
                                state == EditorState::Play ? "PLAYING" : "PAUSED");
         }
 
-        // Ошибки компиляции скриптов — видны сразу после нажатия Play
+        // Ошибки компиляции скриптов: без тултипа, бегающего за курсором — клик кидает в Console
         if (!Scripting::Errors().empty()) {
             ImGui::SameLine();
-            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.25f, 1.0f), "[scripts: %zu]", Scripting::Errors().size());
-            if (ImGui::BeginTooltip()) {
-                for (const auto& err : Scripting::Errors())
-                    ImGui::TextUnformatted(err.c_str());
-                ImGui::EndTooltip();
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55f, 0.12f, 0.10f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.70f, 0.18f, 0.15f, 1.0f));
+            std::string errBtn = "Ошибки: " + std::to_string(Scripting::Errors().size()) + "###scriptErr";
+            if (ImGui::Button(errBtn.c_str())) {
+                m_ProjectConsoleTab = true;
+                m_ShowProject = true;
             }
+            ImGui::PopStyleColor(2);
         }
 
         // Инструменты сцены: W/E/R/Q
@@ -720,6 +807,7 @@ void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
         ImGui::DockBuilderDockWindow("Project", dock_bottom);
         ImGui::DockBuilderDockWindow("Scene", dock_main);
         ImGui::DockBuilderDockWindow("Game", dock_main); // рядом со Scene в табах
+        ImGui::DockBuilderDockWindow("Script", dock_main); // IDE — третьей вкладкой к Scene/Game
         ImGui::DockBuilderFinish(dockspaceID);
     }
 
@@ -842,6 +930,11 @@ void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
                 m_GameImagePos = ImGui::GetCursorScreenPos();
                 m_GameImageSize = avail;
                 ImGui::Image((ImTextureID)(intptr_t)scene->GetGameTexture(), avail, ImVec2(0, 1), ImVec2(1, 0));
+                char fpsBuf[32];
+                snprintf(fpsBuf, sizeof(fpsBuf), "%.0f FPS", m_FpsEma);
+                ImGui::GetForegroundDrawList()->AddText(
+                    ImVec2(m_GameImagePos.x + 8.0f, m_GameImagePos.y + 6.0f),
+                    IM_COL32(255, 255, 130, 255), fpsBuf);
             } else {
                 ImGui::TextDisabled("No Camera in scene. Use GameObject > Create Camera.");
             }
@@ -870,10 +963,12 @@ void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
     RenderPrefabSaveDialog(ctx);
     RenderAssetDialogs(ctx);
     RenderProjectDialogs(ctx);
-    RenderFolderPicker(ctx);
     RenderSettings(ctx);
     RenderBuildDialog(ctx);
     RenderCodeWindow(ctx);
+    // FolderPicker — вложенная модалка: обязана вызываться ПОСЛЕ родительских модалок,
+    // иначе не поднимается поверх и невидимая блокирует ввод («редактор висит»)
+    RenderFolderPicker(ctx);
 
     // ===== RUNTIME UI OVERLAY (Play/Pause) =====
     RenderGameUIOverlay(ctx);
@@ -1096,6 +1191,8 @@ void GUI::RenderInspector(EditorContext& ctx) {
             m_InspectorEntityId = selected->id;
             snprintf(m_TexturePathBuffer, sizeof(m_TexturePathBuffer),
                      "%s", selected->sprite.texturePath.c_str());
+            snprintf(m_AnimTextureBuffer, sizeof(m_AnimTextureBuffer),
+                     "%s", selected->animation.texturePath.c_str());
             snprintf(m_UILabelBuffer, sizeof(m_UILabelBuffer), "%s", selected->ui.label.c_str());
             snprintf(m_ScriptPathBuffer, sizeof(m_ScriptPathBuffer), "%s", selected->scriptPath.c_str());
             snprintf(m_AudioPathBuffer, sizeof(m_AudioPathBuffer), "%s", selected->audio.path.c_str());
@@ -1113,6 +1210,45 @@ void GUI::RenderInspector(EditorContext& ctx) {
             selected->sprite.texturePath.clear();
             m_TexturePathBuffer[0] = '\0';
         }
+
+        // --- Спрайт-анимация ---
+        ImGui::Separator();
+        ImGui::Text("Animation (sprite sheet)");
+        ImGui::Checkbox("Active", &selected->animation.active);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("В Edit кадры крутятся как превью; в Play — по Play On Awake.");
+        ImGui::InputText("Sheet Path", m_AnimTextureBuffer, sizeof(m_AnimTextureBuffer));
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            selected->animation.texturePath = m_AnimTextureBuffer;
+        } else if (!ImGui::IsItemActive() && selected->animation.texturePath != m_AnimTextureBuffer) {
+            snprintf(m_AnimTextureBuffer, sizeof(m_AnimTextureBuffer),
+                     "%s", selected->animation.texturePath.c_str());
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Use Sprite##animtex")) {
+            selected->animation.texturePath = selected->sprite.texturePath;
+            snprintf(m_AnimTextureBuffer, sizeof(m_AnimTextureBuffer), "%s",
+                     selected->animation.texturePath.c_str());
+        }
+        ImGui::DragInt("Cols", &selected->animation.cols, 1.0f, 1, 64);
+        ImGui::DragInt("Rows", &selected->animation.rows, 1.0f, 1, 64);
+        ImGui::DragFloat("FPS", &selected->animation.fps, 0.5f, 0.5f, 60.0f, "%.1f");
+        ImGui::Checkbox("Loop", &selected->animation.loop);
+        ImGui::Checkbox("Play On Awake", &selected->animation.playOnAwake);
+        int totalFrames = std::max(selected->animation.cols, 1) * std::max(selected->animation.rows, 1);
+        int curFrame = selected->animation.active
+            ? static_cast<int>(static_cast<long>(selected->animTime * selected->animation.fps) % totalFrames) : 0;
+        ImGui::TextDisabled("Кадр %d/%d (сетка слева→вправо, сверху вниз)", curFrame + 1, totalFrames);
+
+        // --- Material: живые параметры шейдера ---
+        ImGui::Separator();
+        ImGui::Text("Material (u_Params / u_PColor)");
+        const char* paramNames[] = { "u_Params X", "u_Params Y", "u_Params Z", "u_Params W" };
+        for (int i = 0; i < 4; i++)
+            ImGui::SliderFloat(paramNames[i], &selected->sprite.materialParams[i], 0.0f, 1.0f, "%.2f");
+        ImGui::ColorEdit4("u_PColor", &selected->sprite.materialColor.r);
+        ImGui::TextDisabled("Доступны в пользовательских .frag (u_Params, u_PColor).\n"
+                            "Пример: vec2 offset = u_Params.xy; float s = u_Params.z; fragColor *= u_PColor;");
 
         // --- Пользовательский шейдер ---
         ImGui::Text("Custom Shader");
@@ -1144,7 +1280,7 @@ void GUI::RenderInspector(EditorContext& ctx) {
         if (ImGui::Button("Reload")) {
             ctx.renderer->ClearProjectCaches(); // пересобирает и шейдеры, и текстуры
         }
-        ImGui::TextDisabled("API: достаточно только .frag (вертекс даёт движок).\nХелперы: v_UV, EngineUV, EngineCircleMask, EngineRoundedBox, EngineRing,\nEngineRotate, EngineNoise, EngineFbm, EngineSwirl, EnginePalette, EngineRainbow, EnginePulse");
+        ImGui::TextDisabled("API: достаточно только .frag (вертекс даёт движок).\nХелперы: v_UV, EngineUV, EngineCircleMask, EngineRoundedBox, EngineRing,\nEngineRotate, EngineNoise, EngineFbm, EngineSwirl, EnginePalette, EngineRainbow,\nEnginePulse, EngineGrid, EngineVignette");
 
         ImGui::Separator();
         ImGui::Text("Rigidbody");
@@ -1192,8 +1328,10 @@ void GUI::RenderInspector(EditorContext& ctx) {
                 snprintf(m_UILabelBuffer, sizeof(m_UILabelBuffer), "%s", selected->ui.label.c_str());
             }
 
-            if (selected->ui.kind == UIKind::Slider || selected->ui.kind == UIKind::ProgressBar ||
-                selected->ui.kind == UIKind::Checkbox) {
+            if (selected->ui.kind == UIKind::Checkbox) {
+                bool checked = selected->ui.value >= 0.5f;
+                if (ImGui::Checkbox("Checked", &checked)) selected->ui.value = checked ? 1.0f : 0.0f;
+            } else if (selected->ui.kind == UIKind::Slider || selected->ui.kind == UIKind::ProgressBar) {
                 ImGui::DragFloat("Min", &selected->ui.minValue, 0.01f);
                 ImGui::DragFloat("Max", &selected->ui.maxValue, 0.01f, selected->ui.minValue + 0.001f);
                 ImGui::DragFloat("Value", &selected->ui.value, 0.01f,
@@ -1260,6 +1398,19 @@ void GUI::RenderInspector(EditorContext& ctx) {
         if (!selected->scriptPath.empty() && !fs::exists(selected->scriptPath, ec))
             ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.2f, 1.0f), "Файл не найден: %s", selected->scriptPath.c_str());
         ImGui::TextDisabled("Компилируется при входе в Play; API: Script, Owner(), Scene(), SCRIPT_ENTRY(Класс)");
+
+        // --- Серелиазуемые переменные скрипта (как [SerializeField] в Unity) ---
+        if (!selected->vars.empty()) {
+            ImGui::Separator();
+            ImGui::Text("Script Variables");
+            int varIdx = 0;
+            for (auto& [varName, varValue] : selected->vars) {
+                std::string label = varName + "##var" + std::to_string(varIdx++);
+                ImGui::DragFloat(label.c_str(), &varValue, 0.01f);
+            }
+            ImGui::TextDisabled("Появляются из DefineVar(\"имя\", значение) в Start().\n"
+                                "Меняй на лету в Play — скрипт читает GetVar() каждый кадр.");
+        }
     } else {
         ImGui::TextDisabled("Select an object to inspect");
     }
@@ -2043,9 +2194,10 @@ void GUI::RenderFolderPicker(EditorContext& ctx) {
 
         ImGui::BeginChild("FolderList");
         std::vector<fs::path> subDirs, subFiles;
-        for (const auto& entry : fs::directory_iterator(m_FolderPickerPath, ec)) {
-            if (entry.is_directory()) subDirs.push_back(entry.path());
-            else subFiles.push_back(entry.path());
+        for (fs::directory_iterator it(m_FolderPickerPath, fs::directory_options::skip_permission_denied, ec), end;
+             it != end; ++it) {
+            if (it->is_directory()) subDirs.push_back(it->path());
+            else subFiles.push_back(it->path());
         }
         auto byName = [](const fs::path& a, const fs::path& b) {
             return a.filename().string() < b.filename().string();
@@ -2304,15 +2456,14 @@ void GUI::RenderGameUIOverlay(EditorContext& ctx) {
                 ImGui::PopStyleColor(5);
             } break;
             case UIKind::Checkbox: {
-                bool on = e.ui.value >= (e.ui.minValue + e.ui.maxValue) * 0.5f;
+                // value трактается как bool: <0.5 — false, иначе true (min/max не влияют)
+                bool on = e.ui.value >= 0.5f;
                 ImGui::PushStyleColor(ImGuiCol_CheckMark, tc);
-                ImGui::Checkbox("##c", &on);
-                if (editable && e.ui.interactable && ImGui::IsItemClicked()) {
-                    e.ui.value = on ? e.ui.maxValue : e.ui.minValue;
+                bool changed = ImGui::Checkbox("##c", &on);
+                if (editable && e.ui.interactable && changed) {
+                    e.ui.value = on ? 1.0f : 0.0f;
                     GameUI::ReportValue(e.id, e.ui.value);
                     GameUI::ReportClick(e.id);
-                } else if (!editable) {
-                    on = e.ui.value >= (e.ui.minValue + e.ui.maxValue) * 0.5f;
                 }
                 ImGui::SameLine();
                 ImGui::TextUnformatted(e.ui.label.c_str());
@@ -2349,6 +2500,15 @@ void GUI::RenderGameUIOverlay(EditorContext& ctx) {
 // ===== PLAYER: кадр без редактора =====
 void GUI::RenderPlayerFrame(EditorContext& ctx, int w, int h) {
     m_PopupOpen = false;
+    {
+        static double lastT = -1.0;
+        double now = glfwGetTime();
+        if (lastT > 0.0) {
+            float dt = static_cast<float>(now - lastT);
+            m_FpsEma = m_FpsEma * 0.95f + (1.0f / std::max(dt, 1e-5f)) * 0.05f;
+        }
+        lastT = now;
+    }
     UpdateGameCamera(ctx.sceneManager);
     m_GameSize = glm::vec2(static_cast<float>(w), static_cast<float>(h));
     m_ShowGame = true;
@@ -2370,6 +2530,10 @@ void GUI::RenderPlayerFrame(EditorContext& ctx, int w, int h) {
         ImGui::Image((ImTextureID)(intptr_t)tex, ImVec2(w, h), ImVec2(0, 1), ImVec2(1, 0));
         ImGui::End();
         ImGui::PopStyleVar();
+
+        char fpsBuf[32];
+        snprintf(fpsBuf, sizeof(fpsBuf), "%.0f FPS", m_FpsEma);
+        ImGui::GetForegroundDrawList()->AddText(ImVec2(8, 6), IM_COL32(255, 255, 130, 255), fpsBuf);
     }
 
     // интерактивный runtime UI поверх
@@ -2415,14 +2579,15 @@ void GUI::RenderCodeWindow(EditorContext& ctx) {
 
     std::string filePart = m_CodePath.empty() ? "(нет файла)"
                              : fs::path(m_CodePath).filename().string();
-    std::string title = filePart + (m_CodeDirty ? " *" : "") + "  —  Script###astraCodeEditor";
+    // Окно докируется к Scene/Game под именем "Script"
     ImGui::SetNextWindowSize(ImVec2(720, 520), ImGuiCond_FirstUseEver);
-    ImGui::Begin(title.c_str(), &m_ShowCodeWindow);
+    ImGui::Begin("Script###astraCodeEditor", &m_ShowCodeWindow);
     m_CodeWindowFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
     ImGuiIO& io = ImGui::GetIO();
     if (m_CodeWindowFocused && io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) SaveCodeFile();
 
+    ImGui::Text("%s%s", filePart.c_str(), m_CodeDirty ? "  (не сохранено)" : "");
     if (ImGui::Button("Save (Ctrl+S)")) SaveCodeFile();
     ImGui::SameLine();
     if (ImGui::Button("Reload")) OpenCodeFile(m_CodePath);
@@ -2487,51 +2652,41 @@ void GUI::ImportFileToAssets(EditorContext& ctx, const std::string& srcPath) {
 }
 
 // ===== BUILD GAME =====
-bool GUI::BuildGame(const std::string& destDir, const std::string& scenePath) {
+// ===== BUILD GAME =====
+static void PutU32(std::ostream& o, uint32_t v) { o.write(reinterpret_cast<const char*>(&v), 4); }
+static void PutU64(std::ostream& o, uint64_t v) { o.write(reinterpret_cast<const char*>(&v), 8); }
+static uint32_t GetU32(std::istream& i) { uint32_t v = 0; i.read(reinterpret_cast<char*>(&v), 4); return v; }
+static uint64_t GetU64(std::istream& i) { uint64_t v = 0; i.read(reinterpret_cast<char*>(&v), 8); return v; }
+static std::string ReadAllBytes(const fs::path& path) {
+    std::ifstream f(path, std::ios::binary);
+    std::stringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+
+static const char* kBundleMagic = "ASTRAPKG";
+
+bool AstraBuildGame(const std::string& exeSrc, const std::string& scenePath,
+                    const std::string& destDir, bool singleExe, std::string& status) {
     std::error_code ec;
     fs::path dest(destDir);
     fs::create_directories(dest, ec);
     if (ec) {
-        m_BuildStatus = "Не удалось создать папку: " + ec.message();
-        std::cerr << "[Build] " << m_BuildStatus << "\n";
+        status = "Не удалось создать папку: " + ec.message();
+        std::cerr << "[Build] " << status << "\n";
         return false;
     }
-
-    // 1) движок-плеер = копия текущего бинарника
-    fs::path self = fs::canonical("/proc/self/exe", ec);
+    if (!fs::exists(scenePath, ec)) {
+        status = "Сцена не существует: " + scenePath;
+        return false;
+    }
+    fs::path self = fs::canonical(exeSrc, ec);
     if (ec || self.empty()) {
-        m_BuildStatus = "Не удалось определить путь к бинарнику";
+        status = "Не удалось определить путь к бинарнику";
         return false;
     }
-    fs::path exeOut = dest / "astra";
-    fs::copy_file(self, exeOut, fs::copy_options::overwrite_existing, ec);
-    if (ec) {
-        m_BuildStatus = "Копирование бинарника: " + ec.message();
-        return false;
-    }
-    fs::permissions(exeOut,
-                    fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec |
-                    fs::perms::owner_read | fs::perms::owner_write,
-                    fs::perm_options::add, ec);
-    std::cout << "[Build]player: " << exeOut.string() << "\n";
 
-    // 2) assets целиком
-    if (fs::is_directory("assets", ec)) {
-        fs::path assetsOut = dest / "assets";
-        if (fs::exists(assetsOut, ec)) fs::remove_all(assetsOut, ec);
-        std::error_code ec2;
-        fs::recursive_directory_iterator it("assets", fs::directory_options::skip_permission_denied, ec2);
-        for (; it != fs::recursive_directory_iterator(); ++it) {
-            fs::path rel = fs::relative(it->path(), "assets", ec2);
-            fs::path target = assetsOut / rel;
-            if (it->is_directory()) { fs::create_directories(target, ec2); continue; }
-            fs::copy_file(it->path(), target, fs::copy_options::overwrite_existing, ec2);
-        }
-        std::cout << "[Build] assets -> " << assetsOut.string() << "\n";
-    }
-
-    // 3) предкомпиляция скриптов, на которые ссылается сцена
-    fs::create_directories(dest / "build-scripts", ec);
+    // 1) предкомпиляция скриптов, на которые ссылается сцена
     std::unordered_set<std::string> scripts;
     {
         std::ifstream sf(scenePath);
@@ -2544,7 +2699,9 @@ bool GUI::BuildGame(const std::string& destDir, const std::string& scenePath) {
             }
         }
     }
+    fs::create_directories("build-scripts", ec);
     bool ok = true;
+    std::vector<std::string> soPaths;
     for (const auto& sp : scripts) {
         std::string so = (fs::path("build-scripts") /
                           (fs::path(sp).stem().string() + ".so")).string();
@@ -2557,26 +2714,161 @@ bool GUI::BuildGame(const std::string& destDir, const std::string& scenePath) {
         std::cout << "[Build] compile: " << sp << "\n";
         if (!Scripting::PrecompileScript(sp, so, err)) {
             std::cerr << "[Build] compile FAILED: " << sp << "\n" << err << "\n";
-            m_BuildStatus = "Ошибка компиляции " + sp;
+            status = "Ошибка компиляции " + sp;
             ok = false;
             continue;
         }
+        soPaths.push_back(so);
+    }
+
+    std::string gameJson = "{\n  \"scene\": \"" + scenePath + "\",\n  \"project\": \"astra-game\"\n}\n";
+
+    if (singleExe) {
+        // 2) один файл: exe + приклеенный бандл (assets/, *.so, game.json)
+        fs::path outExe = dest / (fs::path(scenePath).stem().string());
+        fs::copy_file(self, outExe, fs::copy_options::overwrite_existing, ec);
+        if (ec) { status = "Копирование бинарника: " + ec.message(); return false; }
+
+        std::vector<std::pair<std::string, std::string>> files;
+        if (fs::is_directory("assets", ec)) {
+            for (fs::recursive_directory_iterator it("assets", fs::directory_options::skip_permission_denied, ec), e;
+                 it != e; ++it) {
+                if (it->is_directory()) continue;
+                files.emplace_back(fs::relative(it->path(), ".", ec).string(), ReadAllBytes(it->path()));
+            }
+        }
+        for (const auto& so : soPaths) {
+            if (fs::exists(so, ec)) files.emplace_back(so, ReadAllBytes(so));
+        }
+        files.emplace_back("game.json", gameJson);
+
+        std::ofstream ef(outExe, std::ios::binary | std::ios::app);
+        if (!ef.is_open()) { status = "Не удалось дописать бандл в exe"; return false; }
+        std::streampos start = ef.tellp();
+        PutU32(ef, static_cast<uint32_t>(files.size()));
+        for (const auto& [path, data] : files) {
+            PutU32(ef, static_cast<uint32_t>(path.size()));
+            ef.write(path.data(), path.size());
+            PutU64(ef, static_cast<uint64_t>(data.size()));
+            ef.write(data.data(), data.size());
+        }
+        uint64_t payloadSize = static_cast<uint64_t>(ef.tellp()) - static_cast<uint64_t>(start);
+        PutU64(ef, payloadSize);
+        ef.write(kBundleMagic, 8);
+        ef.close();
+        fs::permissions(outExe,
+                        fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec |
+                        fs::perms::owner_read | fs::perms::owner_write,
+                        fs::perm_options::add, ec);
+        status = "Готово: " + outExe.string() + " — один файл, g++ на целевой машине не нужен";
+        std::cout << "[Build] " << status << "\n";
+        return ok;
+    }
+
+    // 2) папка: astra + assets/ + build-scripts/ + game.json
+    fs::path exeOut = dest / "astra";
+    fs::copy_file(self, exeOut, fs::copy_options::overwrite_existing, ec);
+    if (ec) { status = "Копирование бинарника: " + ec.message(); return false; }
+    fs::permissions(exeOut,
+                    fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec |
+                    fs::perms::owner_read | fs::perms::owner_write,
+                    fs::perm_options::add, ec);
+    std::cout << "[Build] player: " << exeOut.string() << "\n";
+
+    if (fs::is_directory("assets", ec)) {
+        fs::path assetsOut = dest / "assets";
+        if (fs::exists(assetsOut, ec)) fs::remove_all(assetsOut, ec);
+        std::error_code ec2;
+        for (fs::recursive_directory_iterator it("assets", fs::directory_options::skip_permission_denied, ec2), e;
+             it != e; ++it) {
+            fs::path rel = fs::relative(it->path(), "assets", ec2);
+            fs::path target = assetsOut / rel;
+            if (it->is_directory()) { fs::create_directories(target, ec2); continue; }
+            fs::copy_file(it->path(), target, fs::copy_options::overwrite_existing, ec2);
+        }
+        std::cout << "[Build] assets -> " << assetsOut.string() << "\n";
+    }
+    fs::create_directories(dest / "build-scripts", ec);
+    for (const auto& so : soPaths) {
         std::error_code ec3;
         fs::copy_file(so, dest / so, fs::copy_options::overwrite_existing, ec3);
         if (ec3) { std::cerr << "[Build] copy .so: " << ec3.message() << "\n"; ok = false; }
     }
-
-    // 4) game.json — стартовая сцена плеера
     {
         std::ofstream jf(dest / "game.json");
-        jf << "{\n  \"scene\": \"" << scenePath << "\",\n  \"project\": \"astra-game\"\n}\n";
+        jf << gameJson;
     }
-
-    m_BuildStatus = ok
-        ? "Готово: " + dest.string() + "  (запуск: ./astra --play)"
-        : "Готово с ошибками — см. консоль";
-    std::cout << "[Build] " << m_BuildStatus << "\n";
+    status = "Готово: " + dest.string() + "  (запуск: ./astra --play)";
+    std::cout << "[Build] " << status << "\n";
     return ok;
+}
+
+bool GUI::BuildGame(const std::string& destDir, const std::string& scenePath) {
+    return AstraBuildGame("/proc/self/exe", scenePath, destDir, m_BuildSingleExe, m_BuildStatus);
+}
+
+std::string AstraBundleExtract() {
+    std::error_code ec;
+    fs::path self = fs::canonical("/proc/self/exe", ec);
+    if (ec || self.empty()) return "";
+    std::ifstream f(self, std::ios::binary | std::ios::ate);
+    if (!f.is_open()) return "";
+    uint64_t size = static_cast<uint64_t>(f.tellg());
+    if (size < 64) return "";
+
+    uint64_t payloadSize = 0;
+    char magic[8] = {};
+    f.seekg(static_cast<std::streamoff>(size - 16));
+    f.read(reinterpret_cast<char*>(&payloadSize), 8);
+    f.read(magic, 8);
+    if (memcmp(magic, kBundleMagic, 8) != 0 || payloadSize == 0 || payloadSize > size - 16)
+        return "";
+
+    fs::path outDir = self.parent_path() / (self.filename().string() + ".bundle");
+    fs::path marker = outDir / ".astra_bundle";
+    std::string sizeTag = std::to_string(payloadSize);
+    if (fs::exists(marker, ec) && ReadAllBytes(marker) == sizeTag)
+        return outDir.string(); // уже распаковано
+
+    f.clear();
+    f.seekg(static_cast<std::streamoff>(size - 16 - payloadSize));
+    uint32_t count = GetU32(f);
+    fs::create_directories(outDir, ec);
+    for (uint32_t i = 0; i < count && f.good(); i++) {
+        uint32_t pathLen = GetU32(f);
+        if (pathLen == 0 || pathLen > 4096) break;
+        std::string path(pathLen, '\0');
+        f.read(path.data(), pathLen);
+        uint64_t dataLen = GetU64(f);
+        if (!f.good()) break;
+        fs::path target = outDir / path;
+        // защита от выхода за пределы каталога (../ и абсолютные пути)
+        std::error_code ec2;
+        fs::path rel = fs::relative(target, outDir, ec2);
+        if (ec2 || rel.empty() || *rel.begin() == "..") {
+            std::cerr << "[Bundle] пропускаю опасный путь: " << path << "\n";
+            f.seekg(static_cast<std::streamoff>(dataLen), std::ios::cur);
+            continue;
+        }
+        fs::create_directories(target.parent_path(), ec2);
+        std::ofstream tf(target, std::ios::binary | std::ios::trunc);
+        constexpr size_t kChunk = 1 << 20;
+        char buf[kChunk];
+        uint64_t left = dataLen;
+        while (left > 0 && tf.is_open()) {
+            size_t n = static_cast<size_t>(std::min<uint64_t>(left, kChunk));
+            f.read(buf, static_cast<std::streamoff>(n));
+            tf.write(buf, f.gcount());
+            left -= static_cast<uint64_t>(f.gcount());
+            if (f.gcount() == 0) break;
+        }
+    }
+    {
+        std::ofstream mf(marker, std::ios::trunc);
+        mf << sizeTag;
+    }
+    std::cout << "[Bundle] распаковано в " << outDir.string() << "\n";
+    return outDir.string();
 }
 
 void GUI::RenderBuildDialog(EditorContext& ctx) {
@@ -2624,9 +2916,13 @@ void GUI::RenderBuildDialog(EditorContext& ctx) {
             else m_FolderPickerPath = GuiHomeDir().string();
         }
 
+        ImGui::Checkbox("Один исполняемый файл (ассеты внутри бинарника)", &m_BuildSingleExe);
         ImGui::Separator();
-        ImGui::TextWrapped("В папку копируются: движок (astra), assets/, предкомпилированные .so скриптов из сцены и game.json со стартовой сценой. "
-                           "Запуск без g++: ./astra --play");
+        ImGui::TextWrapped(m_BuildSingleExe
+            ? "Получится ОДИН файл-игра: движок + assets + собранные скрипты + game.json внутри. "
+              "При запуске распакуется в папку рядом с собой и откроется как игра; g++ на целевой машине не нужен. ESC — выход."
+            : "В папку копируются: движок (astra), assets/, предкомпилированные .so скриптов из сцены и game.json со стартовой сценой. "
+              "Запуск без g++: ./astra --play");
         if (!m_BuildStatus.empty()) {
             ImGui::TextWrapped("%s", m_BuildStatus.c_str());
         }

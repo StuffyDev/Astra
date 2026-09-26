@@ -11,12 +11,14 @@
 #include <vector>
 #include "core/Camera.h"
 #include "core/EditorState.h"
+#include "ecs/SceneManager.h"
 
 class SceneManager;
 class Scene;
 class SceneSerializer;
 class Renderer;
 class ProjectManager;
+class Application;
 struct Entity;
 
 struct EditorContext {
@@ -27,6 +29,7 @@ struct EditorContext {
     Renderer* renderer;
     ProjectManager* projectManager;
     EditorState* state;
+    Application* app = nullptr; // undo/redo
     // true — при выходе из Play не надо восстанавливать снимок (например, сменили проект)
     bool discardSnapshot = false;
 };
@@ -96,6 +99,7 @@ private:
     // Restore после Stop пересобирает вектор сущностей)
     uint32_t m_InspectorEntityId = 0;
     char m_TexturePathBuffer[512] = {};
+    char m_AnimTextureBuffer[512] = {};
     char m_UILabelBuffer[256] = {};
     char m_ScriptPathBuffer[512] = {};
     char m_AudioPathBuffer[512] = {};
@@ -145,6 +149,13 @@ private:
 
     // Консоль
     bool m_ConsoleFollow = true;
+    float m_FpsEma = 60.0f;
+
+    // Undo: снимок «до пачки правок»; пуш при изменении относительно baseline
+    SceneManager::SceneSnapshot m_UndoBaseline;
+    uint64_t m_UndoBaselineSig = 0;
+    bool m_UndoBaselineValid = false;
+    bool m_WasChangedVsBaseline = false;
 
     // Встроенный редактор кода (IDE-lite)
     bool m_ShowCodeWindow = false;
@@ -161,6 +172,7 @@ private:
     std::vector<std::string> m_BuildSceneList;
     std::string m_BuildStatus;
     bool m_BuildRunning = false;
+    bool m_BuildSingleExe = true;
 
     // Шрифты для runtime UI
     ImFont* m_FontMedium = nullptr;
@@ -210,4 +222,17 @@ private:
     // Билд игры
     void RenderBuildDialog(EditorContext& ctx);
     bool BuildGame(const std::string& destDir, const std::string& scenePath);
+
+    // Буфер обмена для сущностей (Ctrl+C / Ctrl+V в редакторе)
+    std::vector<Entity> m_Clipboard;
+    bool m_PendingRestart = false;
 };
+
+// Сборка игры: папка с astra+assets+build-scripts+game.json или один exe с приклеенным
+// бандлом (singleExe). projectRoot — текущая директория проекта. Статус/ошибки — в status.
+bool AstraBuildGame(const std::string& exeSrc, const std::string& scenePath,
+                    const std::string& destDir, bool singleExe, std::string& status);
+
+// Ищет бандл в конце собственного исполняемого файла; если есть — распаковывает
+// в каталог рядом с exe и возвращает его (иначе пустую строку)
+std::string AstraBundleExtract();

@@ -30,4 +30,12 @@ public:
     // Принудительная компиляция в build-scripts/<stem>.so (для Build Game)
     static bool PrecompileScript(const std::string& cppPath, std::string& outSoPath,
                                  std::string& outError);
+
+    // Менеджер сцен: LoadScene() из скрипта; true, если есть незагруженный запрос
+    static bool ConsumeSceneChange(std::string& outPath);
 };
+
+// Символы, которые используют скрипты (экспортируются бинарником, -rdynamic)
+void Log(const std::string& message);
+bool DestroyEntity(uint32_t id);
+void LoadScene(const std::string& scenePath);

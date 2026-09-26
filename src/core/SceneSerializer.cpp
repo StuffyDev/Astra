@@ -23,8 +23,20 @@ void WriteEntity(std::ostream& file, const Entity& e, const std::unordered_map<u
     file << "Color: " << e.sprite.color.r << " " << e.sprite.color.g << " " << e.sprite.color.b << "\n";
     file << "TexturePath: " << e.sprite.texturePath << "\n";
     file << "ShaderPath: " << e.sprite.shaderPath << "\n";
+    file << "MaterialParams: " << e.sprite.materialParams.x << " " << e.sprite.materialParams.y
+         << " " << e.sprite.materialParams.z << " " << e.sprite.materialParams.w << "\n";
+    file << "MaterialColor: " << e.sprite.materialColor.r << " " << e.sprite.materialColor.g
+         << " " << e.sprite.materialColor.b << " " << e.sprite.materialColor.a << "\n";
+    file << "AnimActive: " << (e.animation.active ? 1 : 0) << "\n";
+    file << "AnimTexture: " << e.animation.texturePath << "\n";
+    file << "AnimGrid: " << e.animation.cols << " " << e.animation.rows << "\n";
+    file << "AnimFps: " << e.animation.fps << "\n";
+    file << "AnimLoop: " << (e.animation.loop ? 1 : 0) << "\n";
+    file << "AnimPlayOnAwake: " << (e.animation.playOnAwake ? 1 : 0) << "\n";
     file << "PrefabSource: " << e.prefabSource << "\n";
     file << "ScriptPath: " << e.scriptPath << "\n";
+    for (const auto& [name, value] : e.vars)
+        file << "ScriptVar: " << name << "=" << value << "\n";
     file << "ParentIndex: " << [&] {
         if (e.parentId == 0) return -1;
         auto it = indexOf.find(e.parentId);
@@ -157,8 +169,24 @@ bool SceneSerializer::LoadEntities(const std::string& path, std::vector<Entity>&
             else if (key == "Color:") { iss >> current.sprite.color.r >> current.sprite.color.g >> current.sprite.color.b; }
             else if (key == "TexturePath:") { std::getline(iss, current.sprite.texturePath); current.sprite.texturePath = TrimLead(current.sprite.texturePath); }
             else if (key == "ShaderPath:") { std::getline(iss, current.sprite.shaderPath); current.sprite.shaderPath = TrimLead(current.sprite.shaderPath); }
+            else if (key == "MaterialParams:") { iss >> current.sprite.materialParams.x >> current.sprite.materialParams.y >> current.sprite.materialParams.z >> current.sprite.materialParams.w; }
+            else if (key == "MaterialColor:") { iss >> current.sprite.materialColor.r >> current.sprite.materialColor.g >> current.sprite.materialColor.b >> current.sprite.materialColor.a; }
+            else if (key == "AnimActive:") { int v; iss >> v; current.animation.active = v; }
+            else if (key == "AnimTexture:") { std::getline(iss, current.animation.texturePath); current.animation.texturePath = TrimLead(current.animation.texturePath); }
+            else if (key == "AnimGrid:") { iss >> current.animation.cols >> current.animation.rows; }
+            else if (key == "AnimFps:") { iss >> current.animation.fps; }
+            else if (key == "AnimLoop:") { int v; iss >> v; current.animation.loop = v; }
+            else if (key == "AnimPlayOnAwake:") { int v; iss >> v; current.animation.playOnAwake = v; }
             else if (key == "PrefabSource:") { std::getline(iss, current.prefabSource); current.prefabSource = TrimLead(current.prefabSource); }
             else if (key == "ScriptPath:") { std::getline(iss, current.scriptPath); current.scriptPath = TrimLead(current.scriptPath); }
+            else if (key == "ScriptVar:") {
+                std::string line; std::getline(iss, line); line = TrimLead(line);
+                size_t eq = line.rfind('=');
+                if (eq != std::string::npos) {
+                    try { current.vars[line.substr(0, eq)] = std::stof(line.substr(eq + 1)); }
+                    catch (...) {}
+                }
+            }
             else if (key == "ParentIndex:") { iss >> currentParent; }
             else if (key == "RigidbodyKinematic:") { int v; iss >> v; current.rigidbody.isKinematic = v; }
             else if (key == "RigidbodyVelocity:") { iss >> current.rigidbody.velocity.x >> current.rigidbody.velocity.y; }

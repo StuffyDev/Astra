@@ -9,6 +9,9 @@ public:
 
     void AddEntity(const Entity& entity);
     void RemoveEntity(size_t index);
+    // Удаление по id (для скриптов: DestroyEntity). Нет такого — false
+    bool RemoveEntityById(uint32_t id);
+    int IndexOf(uint32_t id) const;
     void MoveEntityUp(size_t index);
     void MoveEntityDown(size_t index);
     void DuplicateEntity(size_t index);

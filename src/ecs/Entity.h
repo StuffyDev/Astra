@@ -1,6 +1,7 @@
 #pragma once
 #include "ecs/Component.h"
 #include <cstdint>
+#include <map>
 #include <string>
 
 struct Entity {
@@ -9,8 +10,13 @@ struct Entity {
     std::string name = "New Entity";
     std::string prefabSource; // путь .prefab, если это инстанс (только у корня дерева)
     std::string scriptPath;   // assets/scripts/*.cpp, компилируется при входе в Play
+    // Серелиазуемые переменные скрипта (как [SerializeField] в Unity): DefineVar в Start(),
+    // ползунки появляются в Inspector, значения живут в сцене
+    std::map<std::string, float> vars;
     Transform transform;
     Sprite sprite;
+    SpriteAnimation animation;
+    float animTime = 0.0f; // runtime-состояние, в файл не пишется
     Rigidbody rigidbody;
     Collider collider;
     bool hasCamera = false;

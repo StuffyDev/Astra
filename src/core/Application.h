@@ -1,4 +1,5 @@
 #pragma once
+#include <deque>
 #include <memory>
 #include <unordered_set>
 #include "core/Window.h"
@@ -25,6 +26,11 @@ public:
 
     void Run();
 
+    // Undo/redo редактора: снапшоты сцены (GUI пушит «до изменения», горячие клавиши — Ctrl+Z/Ctrl+Shift+Z)
+    void PushUndoSnapshot(const SceneManager::SceneSnapshot& snap);
+    bool Undo();
+    bool Redo();
+
 private:
     std::unique_ptr<Window> m_Window;
     std::unique_ptr<ProjectManager> m_ProjectManager;
@@ -47,6 +53,8 @@ private:
 
     AppOptions m_Options;
     bool m_PlayerMode = false;
+    std::deque<SceneManager::SceneSnapshot> m_UndoStack;
+    std::deque<SceneManager::SceneSnapshot> m_RedoStack;
 
     void ProcessInput(float deltaTime);
     void HandleFileDrops();

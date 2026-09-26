@@ -1,1 +1,13 @@
-build
+# Build
+build/
+*.o
+*.so
+
+# Engine-generated
+build-scripts/
+*.bundle/
+game_build/
+imgui.ini
+
+# Editor/project runtime
+.astra/

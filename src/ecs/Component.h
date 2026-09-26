@@ -27,6 +27,20 @@ struct Sprite {
     // Пользовательский шейдер: базовый путь без расширения (.vert/.frag рядом).
     // Пусто — системный шейдер движка.
     std::string shaderPath;
+    // «Material»: 4 числа u_Params и цвет u_PColor — живые параметры шейдера из инспектора
+    glm::vec4 materialParams = glm::vec4(0.0f, 1.0f, 0.5f, 1.0f);
+    glm::vec4 materialColor = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+};
+
+// покадровая анимация по сетке спрайтшита (row 0 = верхний ряд)
+struct SpriteAnimation {
+    bool active = false;       // крутится ли (в Edit — превью, в Play — по playOnAwake)
+    std::string texturePath;   // спрайтшит; пусто — sprite.texturePath
+    int cols = 1;
+    int rows = 1;
+    float fps = 8.0f;
+    bool loop = true;
+    bool playOnAwake = true;   // включать при входе в Play
 };
 
 struct Rigidbody {

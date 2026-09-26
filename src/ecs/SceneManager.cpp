@@ -25,6 +25,19 @@ void SceneManager::RemoveEntity(size_t index) {
     }
 }
 
+int SceneManager::IndexOf(uint32_t id) const {
+    for (size_t i = 0; i < m_Entities.size(); i++)
+        if (m_Entities[i].id == id) return static_cast<int>(i);
+    return -1;
+}
+
+bool SceneManager::RemoveEntityById(uint32_t id) {
+    int idx = IndexOf(id);
+    if (idx < 0) return false;
+    RemoveEntity(static_cast<size_t>(idx));
+    return true;
+}
+
 bool SceneManager::SetParent(size_t childIndex, size_t parentIndex) {
     if (childIndex >= m_Entities.size()) return false;
     if (childIndex == parentIndex) return false;

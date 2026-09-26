@@ -61,9 +61,11 @@ inline const char* SpriteTexturedFrag = R"(
 in vec2 v_UV;
 out vec4 FragColor;
 uniform vec3 u_Color;
+uniform vec4 u_UVRect; // покадровая анимация: (x, y, w, h) в UV спрайтшита
 uniform sampler2D u_Texture;
 void main() {
-    FragColor = texture(u_Texture, v_UV) * vec4(u_Color, 1.0);
+    vec2 uv = u_UVRect.xy + v_UV * u_UVRect.zw;
+    FragColor = texture(u_Texture, uv) * vec4(u_Color, 1.0);
 }
 )";
 
@@ -72,11 +74,13 @@ inline const char* CircleTexturedFrag = R"(
 in vec2 v_UV;
 out vec4 FragColor;
 uniform vec3 u_Color;
+uniform vec4 u_UVRect;
 uniform sampler2D u_Texture;
 void main() {
     vec2 center = v_UV - vec2(0.5);
     if (length(center) > 0.5) discard;
-    FragColor = texture(u_Texture, v_UV) * vec4(u_Color, 1.0);
+    vec2 uv = u_UVRect.xy + v_UV * u_UVRect.zw;
+    FragColor = texture(u_Texture, uv) * vec4(u_Color, 1.0);
 }
 )";
 

@@ -186,10 +186,12 @@ static const char* kUserVertPrelude =
     "uniform mat4 u_ViewProj;\n"
     "uniform float u_Time;\n"
     "uniform vec2 u_ScreenSize;\n"
+    "uniform vec4 u_UVRect;\n"
     "vec2 EngineUV() { return a_Pos + vec2(0.5f); }\n"
-    // Стандартный квад: вызывает из main(), если вертекс писать не хочется
+    // Стандартный квад: вызывает из main(), если вертекс писать не хочется.
+    // v_UV уже режется u_UVRect — спрайт-анимация работает «из коробки».
     "void EngineQuadVert() {\n"
-    "    v_UV = EngineUV();\n"
+    "    v_UV = u_UVRect.xy + EngineUV() * u_UVRect.zw;\n"
     "    gl_Position = u_MVP * vec4(a_Pos, 0.0, 1.0);\n"
     "}\n";
 
@@ -198,6 +200,8 @@ static const char* kUserFragPrelude =
     "layout(location = 0) out vec4 fragColor;\n"
     "in vec2 v_UV;\n"
     "uniform vec3 u_Color;\n"
+    "uniform vec4 u_Params;\n"   // «Material» из инспектора: 4 живых числа
+    "uniform vec4 u_PColor;\n"   // «Material» из инспектора: цвет
     "uniform sampler2D u_Texture;\n"
     "uniform float u_Time;\n"
     "uniform vec2 u_ScreenSize;\n"
@@ -253,6 +257,14 @@ static const char* kUserFragPrelude =
     "}\n"
     "float EnginePulse(float freq) {\n"
     "    return 0.5 + 0.5 * sin(u_Time * freq * 6.28318);\n"
+    "}\n"
+    "float EngineGrid(vec2 uv, float cells) {\n"
+    "    vec2 g = abs(fract(uv * cells) - 0.5);\n"
+    "    return 1.0 - smoothstep(0.44, 0.5, max(g.x, g.y));\n"
+    "}\n"
+    "float EngineVignette(vec2 uv, float strength) {\n"
+    "    float d = distance(uv, vec2(0.5));\n"
+    "    return clamp(1.0 - d * d * strength * 4.0, 0.0, 1.0);\n"
     "}\n";
 
 // Пользователь мог оставить #version у себя — дубликат роняет компиляцию
@@ -312,6 +324,22 @@ void Renderer::BeginScene(Camera* camera, int width, int height) {
 
 void Renderer::EndScene() {}
 
+// UV-прямоугольник текущего кадра спрайт-анимации (весь кадр, если анимации нет)
+static glm::vec4 AnimationRect(const Entity& entity) {
+    const SpriteAnimation& a = entity.animation;
+    if (!a.active || a.cols < 1 || a.rows < 1) return glm::vec4(0.0f, 0.0f, 1.0f, 1.0f);
+    const int total = a.cols * a.rows;
+    long frame = static_cast<long>(std::floor(std::max(entity.animTime, 0.0f) * std::max(a.fps, 0.01f)));
+    if (a.loop) frame %= total;
+    else frame = std::min(frame, static_cast<long>(total - 1));
+    const int col = static_cast<int>(frame % a.cols);
+    const int row = static_cast<int>(frame / a.cols);
+    return glm::vec4(col / static_cast<float>(a.cols),
+                     1.0f - (row + 1) / static_cast<float>(a.rows),
+                     1.0f / static_cast<float>(a.cols),
+                     1.0f / static_cast<float>(a.rows));
+}
+
 void Renderer::RenderEntities(const std::vector<Entity>& entities, Camera* camera) {
     for (const auto& entity : entities) {
         if (!entity.active) continue;
@@ -319,9 +347,13 @@ void Renderer::RenderEntities(const std::vector<Entity>& entities, Camera* camer
         glm::mat4 model = Transforms::WorldMatrix(entities, entity);
         glm::mat4 mvp = camera->GetViewProjectionMatrix() * model;
 
-        GLuint texture = entity.sprite.texturePath.empty()
-            ? m_WhiteTexture
-            : GetTexture(entity.sprite.texturePath);
+        const bool animating = entity.animation.active &&
+            (entity.animation.cols >= 1 && entity.animation.rows >= 1);
+        const glm::vec4 uvRect = AnimationRect(entity);
+
+        const std::string& texPath = animating && !entity.animation.texturePath.empty()
+            ? entity.animation.texturePath : entity.sprite.texturePath;
+        GLuint texture = texPath.empty() ? m_WhiteTexture : GetTexture(texPath);
 
         // Пользовательский шейдер рисует quad всегда, независимо от sprite.type
         if (!entity.sprite.shaderPath.empty()) {
@@ -334,6 +366,9 @@ void Renderer::RenderEntities(const std::vector<Entity>& entities, Camera* camer
                 sh->SetFloat("u_Time", static_cast<float>(glfwGetTime()));
                 sh->SetVec2("u_ScreenSize", glm::vec2(m_ScreenW, m_ScreenH));
                 sh->SetVec3("u_Color", entity.sprite.color);
+                sh->SetVec4("u_UVRect", uvRect);
+                sh->SetVec4("u_Params", entity.sprite.materialParams);
+                sh->SetVec4("u_PColor", entity.sprite.materialColor);
                 glActiveTexture(GL_TEXTURE0);
                 glBindTexture(GL_TEXTURE_2D, texture != 0 ? texture : m_WhiteTexture);
                 sh->SetInt("u_Texture", 0);
@@ -348,6 +383,7 @@ void Renderer::RenderEntities(const std::vector<Entity>& entities, Camera* camer
                 m_SpriteTextureShader->Use();
                 m_SpriteTextureShader->SetMat4("u_MVP", mvp);
                 m_SpriteTextureShader->SetVec3("u_Color", entity.sprite.color);
+                m_SpriteTextureShader->SetVec4("u_UVRect", uvRect);
                 glActiveTexture(GL_TEXTURE0);
                 glBindTexture(GL_TEXTURE_2D, texture);
                 m_SpriteTextureShader->SetInt("u_Texture", 0);
@@ -363,6 +399,7 @@ void Renderer::RenderEntities(const std::vector<Entity>& entities, Camera* camer
                 m_CircleTextureShader->Use();
                 m_CircleTextureShader->SetMat4("u_MVP", mvp);
                 m_CircleTextureShader->SetVec3("u_Color", entity.sprite.color);
+                m_CircleTextureShader->SetVec4("u_UVRect", uvRect);
                 glActiveTexture(GL_TEXTURE0);
                 glBindTexture(GL_TEXTURE_2D, texture);
                 m_CircleTextureShader->SetInt("u_Texture", 0);
