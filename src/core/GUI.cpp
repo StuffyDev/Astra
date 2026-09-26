@@ -1,14 +1,169 @@
 #include "core/GUI.h"
-#include "core/Camera.h"
 #include "core/Scene.h"
+#include "core/SceneSerializer.h"
+#include "core/Renderer.h"
+#include "core/ProjectManager.h"
+#include "core/GameUI.h"
+#include "core/Audio.h"
+#include "core/Input.h"
+#include "core/Scripting.h"
+#include "utils/ConsoleLog.h"
 #include "ecs/SceneManager.h"
 #include "ecs/Entity.h"
+#include "ecs/Transforms.h"
+#include "ecs/Physics.h"
+#include "scripts/ScriptAPI.h"
+#include <imgui.h>
+#include "misc/cpp/imgui_stdlib.h"
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
-#include <imgui.h>
 #include <imgui_internal.h>
+#include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <fstream>
+#include <iostream>
+#include <string>
+#include <filesystem>
+#include <unordered_map>
+#include <unordered_set>
 
-GUI::GUI(GLFWwindow* window) : m_Window(window) {}
+namespace fs = std::filesystem;
+
+static fs::path GuiHomeDir() {
+    if (const char* home = std::getenv("HOME")) return home;
+    return fs::current_path();
+}
+
+static std::string ToLower(std::string s) {
+    for (auto& c : s) c = static_cast<char>(std::tolower(c));
+    return s;
+}
+
+static std::string ExtLower(const fs::path& p) {
+    std::string ext = p.extension().string();
+    for (auto& c : ext) c = static_cast<char>(std::tolower(c));
+    return ext;
+}
+
+static bool IsImageExt(const std::string& ext) {
+    return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp";
+}
+
+static bool IsAudioExt(const std::string& ext) {
+    return ext == ".wav" || ext == ".mp3" || ext == ".ogg" || ext == ".flac";
+}
+
+static bool IsCodeExt(const std::string& ext) {
+    return ext == ".cpp" || ext == ".h" || ext == ".txt" || ext == ".json" ||
+           ext == ".vert" || ext == ".frag" || ext == ".scene" || ext == ".prefab" || ext == ".md";
+}
+
+static const char* AssetIcon(const std::string& ext) {
+    if (IsImageExt(ext)) return "[img]";
+    if (ext == ".vert" || ext == ".frag") return "[shd]";
+    if (ext == ".scene") return "[scn]";
+    if (ext == ".prefab") return "[prf]";
+    if (ext == ".cpp" || ext == ".h") return "[src]";
+    if (ext == ".wav" || ext == ".mp3" || ext == ".ogg" || ext == ".flac") return "[snd]";
+    return "[---]";
+}
+
+// Уникальный путь внутри папки: name.ext, name_1.ext, ...
+static fs::path UniquePath(const fs::path& dir, const std::string& name, const std::string& ext) {
+    fs::path p = dir / (name + ext);
+    int i = 1;
+    while (fs::exists(p)) p = dir / (name + "_" + std::to_string(i++) + ext);
+    return p;
+}
+
+// ===== dirty-подпись сцены: FNV-1a по всем значимым полям =====
+static void FnvUpdate(uint64_t& h, const void* data, size_t n) {
+    const uint8_t* p = static_cast<const uint8_t*>(data);
+    for (size_t i = 0; i < n; i++) {
+        h ^= p[i];
+        h *= 0x100000001b3ULL;
+    }
+}
+
+static void FnvStr(uint64_t& h, const std::string& s) {
+    FnvUpdate(h, s.data(), s.size());
+    h ^= 0xFF; // разделитель строк
+}
+
+static uint64_t ComputeSceneSignature(SceneManager* sm) {
+    uint64_t h = 0xcbf29ce484222325ULL;
+    for (const Entity& e : sm->GetEntities()) {
+        FnvUpdate(h, &e.id, sizeof(e.id));
+        FnvUpdate(h, &e.parentId, sizeof(e.parentId));
+        FnvUpdate(h, &e.active, sizeof(e.active));
+        FnvStr(h, e.name);
+        FnvStr(h, e.prefabSource);
+        FnvUpdate(h, &e.transform, sizeof(e.transform));
+        FnvUpdate(h, &e.sprite.type, sizeof(e.sprite.type));
+        FnvUpdate(h, &e.sprite.color, sizeof(e.sprite.color));
+        FnvStr(h, e.sprite.texturePath);
+        FnvStr(h, e.sprite.shaderPath);
+        FnvStr(h, e.scriptPath);
+        FnvStr(h, e.audio.path);
+        FnvUpdate(h, &e.audio.volume, sizeof(e.audio.volume));
+        FnvUpdate(h, &e.audio.pitch, sizeof(e.audio.pitch));
+        FnvUpdate(h, &e.audio.loop, sizeof(e.audio.loop));
+        FnvUpdate(h, &e.audio.playOnAwake, sizeof(e.audio.playOnAwake));
+        FnvUpdate(h, &e.rigidbody, sizeof(e.rigidbody));
+        FnvUpdate(h, &e.collider, sizeof(e.collider));
+        FnvUpdate(h, &e.hasCamera, sizeof(e.hasCamera));
+        if (e.hasCamera) FnvUpdate(h, &e.camera, sizeof(e.camera));
+        FnvUpdate(h, &e.hasUI, sizeof(e.hasUI));
+        if (e.hasUI) {
+            FnvUpdate(h, &e.ui.kind, sizeof(e.ui.kind));
+            FnvStr(h, e.ui.label);
+            FnvUpdate(h, &e.ui.minValue, sizeof(e.ui.minValue));
+            FnvUpdate(h, &e.ui.maxValue, sizeof(e.ui.maxValue));
+            FnvUpdate(h, &e.ui.value, sizeof(e.ui.value));
+            FnvUpdate(h, &e.ui.interactable, sizeof(e.ui.interactable));
+            FnvUpdate(h, &e.ui.textColor, 3 * sizeof(float));
+            FnvUpdate(h, &e.ui.bgColor, 3 * sizeof(float));
+            FnvUpdate(h, &e.ui.fontScale, sizeof(e.ui.fontScale));
+        }
+    }
+    return h;
+}
+
+// Хлебные крошки от корня rootDir (например "assets") до path
+static void RenderBreadcrumb(std::string& path, const char* rootDir) {
+    if (ImGui::SmallButton("Assets")) path = rootDir;
+    if (!fs::exists(rootDir)) return;
+
+    std::string rel;
+    std::error_code ec;
+    rel = fs::path(path).lexically_relative(rootDir).string();
+    if (rel == "." || ec) rel.clear();
+
+    std::string acc = rootDir;
+    size_t pos = 0;
+    while (pos < rel.size()) {
+        size_t sep = rel.find('/', pos);
+        if (sep == std::string::npos) sep = rel.size();
+        std::string seg = rel.substr(pos, sep - pos);
+        acc += "/" + seg;
+        ImGui::SameLine();
+        if (ImGui::SmallButton(seg.c_str())) path = acc;
+        pos = sep + 1;
+        if (pos < rel.size() + 1 && sep < rel.size()) {
+            ImGui::SameLine();
+            ImGui::TextDisabled(">");
+        }
+    }
+}
+
+GUI::GUI(GLFWwindow* window) : m_Window(window) {
+    m_GameCamera = std::make_unique<Camera>(16.0f / 9.0f);
+}
+
 GUI::~GUI() { Shutdown(); }
 
 void GUI::Init() {
@@ -16,9 +171,7 @@ void GUI::Init() {
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 
-    // Unity-like style
     ImGui::StyleColorsDark();
     ImGuiStyle& style = ImGui::GetStyle();
     style.WindowRounding = 2.0f;
@@ -54,6 +207,28 @@ void GUI::Init() {
     colors[ImGuiCol_DockingEmptyBg] = ImVec4(0.08f, 0.08f, 0.08f, 1.00f);
     colors[ImGuiCol_Text] = ImVec4(0.85f, 0.85f, 0.85f, 1.00f);
 
+    // Шрифты с кириллицей: базовый + средний/крупный для runtime UI
+    {
+        const char* candidates[] = {
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/TTF/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/liberation/LiberationSans-Regular.ttf",
+        };
+        const char* ttf = nullptr;
+        for (const char* c : candidates) {
+            if (fs::exists(c)) { ttf = c; break; }
+        }
+        if (ttf) {
+            ImFontAtlas* atlas = io.Fonts;
+            const ImWchar* ranges = atlas->GetGlyphRangesCyrillic(); // включает латиницу
+            atlas->AddFontFromFileTTF(ttf, 13.0f, nullptr, ranges);
+            m_FontMedium = atlas->AddFontFromFileTTF(ttf, 17.0f, nullptr, ranges);
+            m_FontLarge = atlas->AddFontFromFileTTF(ttf, 24.0f, nullptr, ranges);
+        }
+    }
+
     ImGui_ImplGlfw_InitForOpenGL(m_Window, true);
     ImGui_ImplOpenGL3_Init("#version 460");
 }
@@ -73,50 +248,443 @@ void GUI::BeginFrame() {
 void GUI::EndFrame() {
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+}
 
-    ImGuiIO& io = ImGui::GetIO();
-    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-        GLFWwindow* backup = glfwGetCurrentContext();
-        ImGui::UpdatePlatformWindows();
-        ImGui::RenderPlatformWindowsDefault();
-        glfwMakeContextCurrent(backup);
+void GUI::UpdateGameCamera(SceneManager* sceneManager) {
+    auto& entities = sceneManager->GetEntities();
+    Entity* mainCam = nullptr;
+    Entity* anyCam = nullptr;
+    for (auto& e : entities) {
+        if (!e.active || !e.hasCamera) continue;
+        if (!anyCam) anyCam = &e;
+        if (e.camera.mainCamera) { mainCam = &e; break; }
+    }
+
+    Entity* chosen = mainCam ? mainCam : anyCam;
+    m_HasGameCamera = chosen != nullptr;
+    if (chosen) {
+        // мировая позиция с учётом parent-цепочки: камера-ребёнок следует за родителем
+        m_GameCamera->SetPosition(Transforms::WorldPosition(entities, *chosen) + chosen->camera.offset);
+        m_GameCamera->SetZoom(chosen->camera.zoom);
+        m_GameCamera->SetAspectRatio(m_GameSize.x / m_GameSize.y);
     }
 }
 
-void GUI::RenderEditorPanels(Camera* camera, SceneManager* sceneManager, Scene* scene, float deltaTime) {
-    // Main Menu Bar
+void GUI::ApplyProject(EditorContext& ctx) {
+    ctx.renderer->ClearProjectCaches();
+    ctx.sceneManager->Clear();
+    if (*ctx.state != EditorState::Edit) {
+        *ctx.state = EditorState::Edit;
+        ctx.discardSnapshot = true;
+    }
+    m_BrowsePath = "assets";
+    m_SelectedAsset.clear();
+    if (fs::exists("assets/scenes/default.scene")) {
+        ctx.serializer->Load(ctx.sceneManager, "assets/scenes/default.scene");
+        m_CurrentScenePath = "assets/scenes/default.scene";
+    } else {
+        m_CurrentScenePath.clear();
+    }
+    MarkSceneSaved(ctx);
+}
+
+// ===== Workflows сцен =====
+void GUI::MarkSceneSaved(EditorContext& ctx) {
+    m_SceneSignature = ComputeSceneSignature(ctx.sceneManager);
+    m_SceneDirty = false;
+}
+
+void GUI::RefreshSceneDirty(EditorContext& ctx) {
+    // Во время Play трансформы меняет физика — не считаем это правками
+    if (*ctx.state != EditorState::Edit) return;
+    if (!m_BaselineValid) {
+        // стартовая сцена загружена Application'ом до GUI — первый снимок не считается правкой
+        m_BaselineValid = true;
+        MarkSceneSaved(ctx);
+        return;
+    }
+    m_SceneDirty = ComputeSceneSignature(ctx.sceneManager) != m_SceneSignature;
+}
+
+void GUI::SaveSceneNow(EditorContext& ctx) {
+    if (m_CurrentScenePath.empty()) {
+        OpenSceneSaveAs(ctx);
+        return;
+    }
+    std::error_code ec;
+    fs::create_directories(fs::path(m_CurrentScenePath).parent_path(), ec);
+    ctx.serializer->Save(ctx.sceneManager, m_CurrentScenePath);
+    MarkSceneSaved(ctx);
+}
+
+void GUI::OpenSceneSaveAs(EditorContext& ctx) {
+    m_ShowSceneBrowser = true;
+    m_SceneBrowserSave = true;
+    m_SceneBrowserSelected.clear();
+    m_SceneBrowserAfterOpen.clear();
+    m_SceneBrowserAfterNew = false;
+    if (m_CurrentScenePath.empty()) {
+        m_SceneBrowserDir = "assets/scenes";
+        if (!m_SceneBrowserNameBuf[0]) strcpy(m_SceneBrowserNameBuf, "new_scene");
+    } else {
+        m_SceneBrowserDir = fs::path(m_CurrentScenePath).parent_path().string();
+        strcpy(m_SceneBrowserNameBuf, fs::path(m_CurrentScenePath).filename().string().c_str());
+    }
+}
+
+bool GUI::LoadSceneAsset(EditorContext& ctx, const std::string& path) {
+    if (!ctx.serializer->Load(ctx.sceneManager, path)) return false;
+    m_CurrentScenePath = path;
+    MarkSceneSaved(ctx);
+    return true;
+}
+
+void GUI::DoNewScene(EditorContext& ctx) {
+    ctx.sceneManager->Clear();
+    m_CurrentScenePath.clear();
+    MarkSceneSaved(ctx);
+}
+
+void GUI::RequestNewScene(EditorContext& ctx) {
+    if (m_SceneDirty) {
+        m_PendingAction = 1;
+        m_PendingScenePath.clear();
+        m_ShowSceneConfirm = true;
+    } else {
+        DoNewScene(ctx);
+    }
+}
+
+void GUI::RequestOpenScene(EditorContext& ctx, const std::string& path) {
+    if (m_SceneDirty && path != m_CurrentScenePath) {
+        m_PendingAction = 2;
+        m_PendingScenePath = path;
+        m_ShowSceneConfirm = true;
+    } else {
+        LoadSceneAsset(ctx, path);
+    }
+}
+
+// ===== Префабы =====
+int GUI::InstantiatePrefab(EditorContext& ctx, const std::string& path, const glm::vec2& worldPos) {
+    std::vector<Entity> protos;
+    if (!ctx.serializer->LoadEntities(path, protos) || protos.empty()) return -1;
+    int root = ctx.sceneManager->InstantiateProtos(protos, worldPos - protos[0].transform.position);
+    if (root >= 0) ctx.sceneManager->GetEntities()[root].prefabSource = path;
+    return root;
+}
+
+void GUI::RevertToPrefab(EditorContext& ctx, size_t index) {
+    auto& ents = ctx.sceneManager->GetEntities();
+    if (index >= ents.size() || ents[index].prefabSource.empty()) return;
+    const std::string prefab = ents[index].prefabSource;
+    const uint32_t parentId = ents[index].parentId;
+    const glm::vec2 worldPos = Transforms::WorldPosition(ents, ents[index]);
+
+    std::vector<Entity> protos;
+    if (!ctx.serializer->LoadEntities(prefab, protos) || protos.empty()) return;
+
+    ctx.sceneManager->DeleteSubtree(index);
+    int newRoot = ctx.sceneManager->InstantiateProtos(protos, worldPos - protos[0].transform.position);
+    if (newRoot < 0) return;
+    auto& after = ctx.sceneManager->GetEntities();
+    after[newRoot].prefabSource = prefab;
+    if (parentId != 0) {
+        for (size_t i = 0; i < after.size(); i++) {
+            if (after[i].id == parentId) {
+                ctx.sceneManager->SetParent(static_cast<size_t>(newRoot), i);
+                break;
+            }
+        }
+    }
+}
+
+void GUI::HandleHotkeys(EditorContext& ctx) {
+    ImGuiIO& io = ImGui::GetIO();
+    // Пока фокус во встроенном редакторе кода — все клавиши (Ctrl+S, ^C/^V/^X/^Z, Undo) его
+    if (m_ShowCodeWindow && m_CodeWindowFocused) return;
+    if (m_PopupOpen || io.WantCaptureKeyboard || m_ShowProjectManagerWindow || m_FolderPickerTarget) return;
+
+    Input& in = Input::Get();
+    const bool ctrl = in.IsKeyDown(GLFW_KEY_LEFT_CONTROL) || in.IsKeyDown(GLFW_KEY_RIGHT_CONTROL);
+    const bool shift = in.IsKeyDown(GLFW_KEY_LEFT_SHIFT) || in.IsKeyDown(GLFW_KEY_RIGHT_SHIFT);
+    SceneManager* sm = ctx.sceneManager;
+    const int sel = sm->GetSelectedEntity();
+
+    if (ctrl && in.WasKeyPressed(GLFW_KEY_N)) { RequestNewScene(ctx); return; }
+    if (ctrl && in.WasKeyPressed(GLFW_KEY_O)) {
+        m_ShowSceneBrowser = true;
+        m_SceneBrowserSave = false;
+        m_SceneBrowserSelected.clear();
+        m_SceneBrowserAfterOpen.clear();
+        m_SceneBrowserAfterNew = false;
+        m_SceneBrowserDir = m_CurrentScenePath.empty() ? "assets/scenes"
+                       : fs::path(m_CurrentScenePath).parent_path().string();
+        return;
+    }
+    if (ctrl && in.WasKeyPressed(GLFW_KEY_S)) {
+        if (shift) OpenSceneSaveAs(ctx); else SaveSceneNow(ctx);
+        return;
+    }
+    if (ctrl && in.WasKeyPressed(GLFW_KEY_D)) {
+        if (sel >= 0) sm->DuplicateSubtree(static_cast<size_t>(sel));
+        return;
+    }
+    if (ctrl && (in.WasKeyPressed(GLFW_KEY_UP) || in.WasKeyPressed(GLFW_KEY_DOWN))) {
+        // перестановка среди сиблингов (как Ctrl+PageUp/PageDown в Unity)
+        if (sel >= 0) {
+            auto& ents = sm->GetEntities();
+            const Entity& cur = ents[static_cast<size_t>(sel)];
+            int mode = in.WasKeyPressed(GLFW_KEY_UP) ? -1 : 1;
+            uint32_t refId = 0;
+            if (mode < 0) {
+                for (int i = sel - 1; i >= 0; i--)
+                    if (ents[i].parentId == cur.parentId) { refId = ents[i].id; break; }
+            } else {
+                for (size_t i = sel + 1; i < ents.size(); i++)
+                    if (ents[i].parentId == cur.parentId) { refId = ents[i].id; break; }
+            }
+            if (refId) sm->MoveEntity(cur.id, refId, mode);
+        }
+        return;
+    }
+    if (!ctrl && (in.WasKeyPressed(GLFW_KEY_DELETE) || in.WasKeyPressed(GLFW_KEY_BACKSPACE))) {
+        if (!m_ProjectPanelFocused && sel >= 0) sm->DeleteSubtree(static_cast<size_t>(sel));
+        return;
+    }
+    if (in.WasKeyPressed(GLFW_KEY_F2)) {
+        if (m_ProjectPanelFocused && !m_SelectedAsset.empty() && m_SelectedAsset != "assets") {
+            m_RenameAssetPath = m_SelectedAsset;
+            snprintf(m_AssetNameBuffer, sizeof(m_AssetNameBuffer), "%s",
+                     fs::path(m_SelectedAsset).filename().string().c_str());
+        } else if (!m_ProjectPanelFocused && sel >= 0) {
+            m_ShowRenameDialog = true;
+            m_RenameIndex = sel;
+            strcpy(m_RenameBuffer, sm->GetEntities()[sel].name.c_str());
+        }
+        return;
+    }
+    if (ctrl && in.WasKeyPressed(GLFW_KEY_P)) {
+        EditorState& st = *ctx.state;
+        st = (st == EditorState::Edit) ? EditorState::Play : EditorState::Edit;
+        return;
+    }
+    if (!ctrl && !shift) {
+        if (in.WasKeyPressed(GLFW_KEY_W)) ctx.scene->SetGizmoMode(0);
+        if (in.WasKeyPressed(GLFW_KEY_E)) ctx.scene->SetGizmoMode(1);
+        if (in.WasKeyPressed(GLFW_KEY_R)) ctx.scene->SetGizmoMode(2);
+        if (in.WasKeyPressed(GLFW_KEY_Q)) ctx.scene->SetGizmoMode(3);
+    }
+}
+
+void GUI::UpdateWindowTitle(EditorContext& ctx) {
+    static std::string last;
+    std::string sceneName = m_CurrentScenePath.empty()
+        ? "Untitled"
+        : fs::path(m_CurrentScenePath).stem().string();
+    std::string title = "Astra — " + ctx.projectManager->CurrentProjectName() +
+                        " | " + sceneName + (m_SceneDirty ? "*" : "");
+    if (title != last) {
+        glfwSetWindowTitle(m_Window, title.c_str());
+        last = title;
+    }
+}
+
+void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
+    m_PopupOpen = false;
+    SceneManager* sceneManager = ctx.sceneManager;
+    Scene* scene = ctx.scene;
+    Camera* camera = ctx.camera;
+    EditorState& state = *ctx.state;
+
+    HandleHotkeys(ctx);
+    UpdateGameCamera(sceneManager);
+    RefreshSceneDirty(ctx);
+    UpdateWindowTitle(ctx);
+    (void)deltaTime;
+
+    // ===== MENU BAR + TOOLBAR =====
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
-            if (ImGui::MenuItem("New Scene", "Ctrl+N")) {}
-            if (ImGui::MenuItem("Open Scene", "Ctrl+O")) {}
-            if (ImGui::MenuItem("Save Scene", "Ctrl+S")) {}
+            if (ImGui::MenuItem("New Scene", "Ctrl+N")) RequestNewScene(ctx);
+            if (ImGui::MenuItem("Open Scene...", "Ctrl+O")) {
+                m_ShowSceneBrowser = true;
+                m_SceneBrowserSave = false;
+                m_SceneBrowserSelected.clear();
+                m_SceneBrowserAfterOpen.clear();
+                m_SceneBrowserAfterNew = false;
+            }
+            if (ImGui::MenuItem("Save Scene", "Ctrl+S")) SaveSceneNow(ctx);
+            if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S")) OpenSceneSaveAs(ctx);
             ImGui::Separator();
-            if (ImGui::MenuItem("Exit")) {}
+            if (ImGui::MenuItem("New Project...")) {
+                m_ShowNewProjectDialog = true;
+                m_ProjectError.clear();
+                snprintf(m_NewProjectLocation, sizeof(m_NewProjectLocation), "%s",
+                         (GuiHomeDir() / "projects").string().c_str());
+            }
+            if (ImGui::MenuItem("Open Project...")) {
+                m_ShowOpenProjectDialog = true;
+                m_ProjectError.clear();
+            }
+            if (ImGui::MenuItem("Projects Manager")) {
+                m_ShowProjectManagerWindow = true;
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Build Game...")) {
+                m_ShowBuildDialog = true;
+                m_BuildStatus.clear();
+                m_BuildRunning = false;
+                if (!m_BuildDirBuf[0]) strcpy(m_BuildDirBuf, "build_release");
+            }
+            if (ImGui::BeginMenu("Open Recent")) {
+                const auto& recent = ctx.projectManager->GetRecent();
+                if (recent.empty()) ImGui::TextDisabled("(empty)");
+                for (const auto& path : recent) {
+                    std::string label = fs::path(path).filename().string() + "  (" + path + ")";
+                    if (ImGui::MenuItem(label.c_str())) {
+                        if (ctx.projectManager->OpenProject(path)) ApplyProject(ctx);
+                        else m_ProjectError = ctx.projectManager->LastError();
+                        m_ShowOpenProjectDialog = true;
+                    }
+                }
+                ImGui::EndMenu();
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Exit")) {
+                glfwSetWindowShouldClose(m_Window, GLFW_TRUE);
+            }
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Edit")) {
+            if (ImGui::MenuItem("Settings...")) m_ShowSettings = true;
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("GameObject")) {
-            if (ImGui::MenuItem("Create Quad")) {
+            if (ImGui::MenuItem("Create Empty")) {
                 Entity e;
-                e.name = "Quad";
-                e.sprite.type = SpriteType::Quad;
-                e.sprite.color = glm::vec3(1.0f, 1.0f, 1.0f);
-                e.transform.scale = glm::vec2(100.0f, 100.0f);
+                e.name = "Empty";
                 sceneManager->AddEntity(e);
             }
+            if (ImGui::MenuItem("Create Quad")) {
+                m_ShowNewEntityDialog = true;
+                m_NewEntityType = 1;
+                strcpy(m_NewEntityName, "Quad");
+            }
             if (ImGui::MenuItem("Create Circle")) {
-                Entity e;
-                e.name = "Circle";
-                e.sprite.type = SpriteType::Circle;
-                e.sprite.color = glm::vec3(1.0f, 1.0f, 1.0f);
-                e.transform.scale = glm::vec2(100.0f, 100.0f);
-                sceneManager->AddEntity(e);
+                m_ShowNewEntityDialog = true;
+                m_NewEntityType = 2;
+                strcpy(m_NewEntityName, "Circle");
+            }
+            if (ImGui::MenuItem("Create Camera")) {
+                bool anyMain = false;
+                for (const auto& e : sceneManager->GetEntities()) {
+                    if (e.hasCamera && e.camera.mainCamera) { anyMain = true; break; }
+                }
+                Entity cam;
+                cam.name = "Main Camera";
+                cam.sprite.type = SpriteType::None;
+                cam.collider.type = ColliderType::None;
+                cam.rigidbody.isKinematic = true;
+                cam.hasCamera = true;
+                cam.camera.mainCamera = !anyMain;
+                sceneManager->AddEntity(cam);
+            }
+            if (ImGui::BeginMenu("Create UI")) {
+                auto addUIEntity = [&](const char* name, UIKind kind, glm::vec2 size) {
+                    Entity e;
+                    e.name = name;
+                    e.sprite.type = SpriteType::None;
+                    e.collider.type = ColliderType::None;
+                    e.rigidbody.isKinematic = true;
+                    e.hasUI = true;
+                    e.ui.kind = kind;
+                    e.ui.label = (kind == UIKind::Text) ? "Hello" : name;
+                    if (kind == UIKind::Slider || kind == UIKind::ProgressBar) { e.ui.minValue = 0.0f; e.ui.maxValue = 1.0f; e.ui.value = 0.5f; }
+                    if (kind == UIKind::Checkbox) { e.ui.minValue = 0.0f; e.ui.maxValue = 1.0f; e.ui.value = 0.0f; }
+                    e.transform.position = camera->GetPosition(); // мировые координаты центра вида
+                    e.transform.scale = size;
+                    sceneManager->AddEntity(e);
+                };
+                if (ImGui::MenuItem("Button")) addUIEntity("Button", UIKind::Button, glm::vec2(140.0f, 30.0f));
+                if (ImGui::MenuItem("Text")) addUIEntity("Text", UIKind::Text, glm::vec2(100.0f, 20.0f));
+                if (ImGui::MenuItem("Slider")) addUIEntity("Slider", UIKind::Slider, glm::vec2(180.0f, 0.0f));
+                if (ImGui::MenuItem("Checkbox")) addUIEntity("Checkbox", UIKind::Checkbox, glm::vec2(140.0f, 0.0f));
+                if (ImGui::MenuItem("Progress Bar")) addUIEntity("Progress Bar", UIKind::ProgressBar, glm::vec2(180.0f, 20.0f));
+                ImGui::EndMenu();
             }
             ImGui::EndMenu();
         }
+        if (ImGui::BeginMenu("View")) {
+            if (ImGui::MenuItem("Scene", nullptr, m_ShowScene)) { m_ShowScene = !m_ShowScene; m_RebuildDockLayout = true; }
+            if (ImGui::MenuItem("Game", nullptr, m_ShowGame)) { m_ShowGame = !m_ShowGame; m_RebuildDockLayout = true; }
+            if (ImGui::MenuItem("Hierarchy", nullptr, m_ShowHierarchy)) { m_ShowHierarchy = !m_ShowHierarchy; m_RebuildDockLayout = true; }
+            if (ImGui::MenuItem("Inspector", nullptr, m_ShowInspector)) { m_ShowInspector = !m_ShowInspector; m_RebuildDockLayout = true; }
+            if (ImGui::MenuItem("Project", nullptr, m_ShowProject)) { m_ShowProject = !m_ShowProject; m_RebuildDockLayout = true; }
+            if (ImGui::MenuItem("Script Editor", nullptr, m_ShowCodeWindow)) m_ShowCodeWindow = !m_ShowCodeWindow;
+            ImGui::EndMenu();
+        }
+
+        ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
+        ImGui::AlignTextToFramePadding();
+        ImGui::Text("%s", ctx.projectManager->CurrentProjectName().c_str());
+        ImGui::SameLine();
+        {
+            std::string sceneName = m_CurrentScenePath.empty()
+                ? "Untitled" : fs::path(m_CurrentScenePath).filename().string();
+            ImGui::TextColored(m_SceneDirty ? ImVec4(0.95f, 0.7f, 0.2f, 1.0f) : ImVec4(0.75f, 0.75f, 0.75f, 1.0f),
+                               "%s%s", sceneName.c_str(), m_SceneDirty ? " *" : "");
+        }
+        ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
+
+        ImGui::BeginDisabled(state != EditorState::Edit);
+        if (ImGui::Button("Play")) state = EditorState::Play;
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::BeginDisabled(state != EditorState::Play);
+        if (ImGui::Button("Pause")) state = EditorState::Pause;
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::BeginDisabled(state == EditorState::Edit);
+        if (ImGui::Button("Stop")) state = EditorState::Edit;
+        ImGui::EndDisabled();
+
+        if (state != EditorState::Edit) {
+            ImGui::SameLine();
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextColored(state == EditorState::Play ? ImVec4(0.3f, 0.9f, 0.3f, 1.0f) : ImVec4(0.9f, 0.7f, 0.2f, 1.0f),
+                               state == EditorState::Play ? "PLAYING" : "PAUSED");
+        }
+
+        // Ошибки компиляции скриптов — видны сразу после нажатия Play
+        if (!Scripting::Errors().empty()) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.25f, 1.0f), "[scripts: %zu]", Scripting::Errors().size());
+            if (ImGui::BeginTooltip()) {
+                for (const auto& err : Scripting::Errors())
+                    ImGui::TextUnformatted(err.c_str());
+                ImGui::EndTooltip();
+            }
+        }
+
+        // Инструменты сцены: W/E/R/Q
+        ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
+        static const char* toolNames[4] = { "Move", "Rotate", "Scale", "Hand" };
+        static const char* toolKeys[4] = { "W", "E", "R", "Q" };
+        int gmode = scene->GetGizmoMode();
+        for (int i = 0; i < 4; i++) {
+            ImGui::SameLine();
+            char label[32];
+            snprintf(label, sizeof(label), "%s (%s)", toolNames[i], toolKeys[i]);
+            if (gmode == i) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.90f, 0.50f, 0.15f, 0.55f));
+            if (ImGui::Button(label)) scene->SetGizmoMode(i);
+            if (gmode == i) ImGui::PopStyleColor();
+        }
+
         ImGui::EndMainMenuBar();
     }
 
-    // DockSpace Root
+    // ===== DOCKSPACE =====
     ImGuiWindowFlags dockFlags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->Pos);
@@ -135,8 +703,9 @@ void GUI::RenderEditorPanels(Camera* camera, SceneManager* sceneManager, Scene* 
     ImGui::DockSpace(dockspaceID, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
 
     static bool firstTime = true;
-    if (firstTime) {
+    if (firstTime || m_RebuildDockLayout) {
         firstTime = false;
+        m_RebuildDockLayout = false;
         ImGui::DockBuilderRemoveNode(dockspaceID);
         ImGui::DockBuilderAddNode(dockspaceID, ImGuiDockNodeFlags_DockSpace);
         ImGui::DockBuilderSetNodeSize(dockspaceID, viewport->Size);
@@ -150,65 +719,365 @@ void GUI::RenderEditorPanels(Camera* camera, SceneManager* sceneManager, Scene* 
         ImGui::DockBuilderDockWindow("Inspector", dock_right);
         ImGui::DockBuilderDockWindow("Project", dock_bottom);
         ImGui::DockBuilderDockWindow("Scene", dock_main);
+        ImGui::DockBuilderDockWindow("Game", dock_main); // рядом со Scene в табах
         ImGui::DockBuilderFinish(dockspaceID);
     }
 
     ImGui::End();
 
-    // ===== SCENE VIEW (Framebuffer texture) =====
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::Begin("Scene");
+    // ===== SCENE VIEW =====
+    if (m_ShowScene) {
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        bool sceneVisible = ImGui::Begin("Scene");
 
-    m_SceneFocused = ImGui::IsWindowFocused();
-    m_SceneHovered = ImGui::IsWindowHovered();
+        if (sceneVisible) {
+            m_SceneFocused = ImGui::IsWindowFocused();
+            m_SceneHovered = ImGui::IsWindowHovered();
 
-    ImVec2 avail = ImGui::GetContentRegionAvail();
-    m_SceneSize = glm::vec2(avail.x, avail.y);
+            ImVec2 avail = ImGui::GetContentRegionAvail();
+            m_SceneSize = glm::vec2(avail.x, avail.y);
 
-    // Рендерим сцену в текстуру
-    scene->Render(camera, sceneManager, static_cast<int>(avail.x), static_cast<int>(avail.y));
+            scene->Render(camera, sceneManager, static_cast<int>(avail.x), static_cast<int>(avail.y),
+                          m_HasGameCamera ? m_GameCamera.get() : nullptr);
+            // мышь гейтим строго по rects изображения: любые "уточняющие" слагаемые
+            // (frame height и пр.) сдвигают хит-зоны gizmo относительно отрисованных осей
+            m_SceneImagePos = ImGui::GetCursorScreenPos();
+            ImGui::Image((ImTextureID)(intptr_t)scene->GetViewportTexture(), avail, ImVec2(0, 1), ImVec2(1, 0));
 
-    // Показываем текстуру
-    ImGui::Image((ImTextureID)(intptr_t)scene->GetViewportTexture(), avail, ImVec2(0, 1), ImVec2(1, 0));
+            ImVec2 mousePos = ImGui::GetMousePos();
+            m_SceneMousePos = glm::vec2(mousePos.x - m_SceneImagePos.x, mousePos.y - m_SceneImagePos.y);
 
-    // Мышь в координатах сцены
-    ImVec2 mousePos = ImGui::GetMousePos();
-    ImVec2 windowPos = ImGui::GetWindowPos();
-    ImVec2 cursorPos = ImGui::GetCursorScreenPos();
-    // cursorPos уже после Image, так что считаем от windowPos + padding
-    ImVec2 scenePos = ImVec2(
-        windowPos.x + ImGui::GetWindowContentRegionMin().x,
-        windowPos.y + ImGui::GetWindowContentRegionMin().y + ImGui::GetFrameHeight()
-    );
+            // Предпросмотр runtime UI прямо в Scene: вкладка Game может быть скрыта за Scene
+            {
+                auto& ents = sceneManager->GetEntities();
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                glm::mat4 vp = camera->GetViewProjectionMatrix();
+                auto w2s = [&](const glm::vec2& wp) {
+                    glm::vec4 clip = vp * glm::vec4(wp, 0.0f, 1.0f);
+                    return ImVec2(m_SceneImagePos.x + (clip.x * 0.5f + 0.5f) * m_SceneSize.x,
+                                  m_SceneImagePos.y + (1.0f - (clip.y * 0.5f + 0.5f)) * m_SceneSize.y);
+                };
+                for (const auto& e : ents) {
+                    if (!e.hasUI || !e.active) continue;
+                    glm::vec2 wp = Transforms::WorldPosition(ents, e);
+                    glm::vec2 half = e.transform.scale * 0.5f;
+                    half.y = std::max(half.y, 12.0f);
+                    half.x = std::max(half.x, 24.0f);
+                    ImVec2 a = w2s(wp - half), b = w2s(wp + half);
+                    dl->AddRectFilled(a, b, IM_COL32(90, 140, 200, 50));
+                    dl->AddRect(a, b, IM_COL32(120, 180, 255, 170), 3.0f);
+                    ImVec2 t = w2s(wp);
+                    dl->AddText(ImVec2(t.x - 30.0f, t.y - 6.0f), IM_COL32(220, 230, 255, 210),
+                                e.ui.label.c_str());
+                }
+            }
 
-    m_SceneMousePos = glm::vec2(
-        mousePos.x - scenePos.x,
-        mousePos.y - scenePos.y
-    );
+            // Дроп ассета прямо в Scene: картинка — на объект под курсором (или создать спрайт),
+            // префаб — инстанцируется в точку дропа
+            if (ImGui::BeginDragDropTarget()) {
+                glm::vec2 wp = camera->ScreenToWorld(m_SceneMousePos, m_SceneSize.x, m_SceneSize.y);
+                auto& ents = sceneManager->GetEntities();
+                int hitIdx = -1;
+                for (size_t i = ents.size(); i > 0; i--) {
+                    const Entity& e = ents[i - 1];
+                    if (!e.active || e.sprite.type == SpriteType::None) continue;
+                    glm::vec2 p = Transforms::WorldPosition(ents, e);
+                    glm::vec2 half = e.transform.scale * 0.5f;
+                    if (std::fabs(wp.x - p.x) <= half.x && std::fabs(wp.y - p.y) <= half.y) {
+                        hitIdx = static_cast<int>(i - 1);
+                        break;
+                    }
+                }
+                if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
+                    std::string path((const char*)p->Data);
+                    std::string ext = ExtLower(path);
+                    bool isAudio = ext == ".wav" || ext == ".mp3" || ext == ".ogg" || ext == ".flac";
+                    if (IsImageExt(ext) || isAudio) {
+                        if (hitIdx >= 0) {
+                            if (isAudio) ents[hitIdx].audio.path = path;
+                            else ents[hitIdx].sprite.texturePath = path;
+                            sceneManager->SetSelectedEntity(hitIdx);
+                        } else if (!isAudio) {
+                            Entity e;
+                            e.name = fs::path(path).filename().string();
+                            e.sprite.type = SpriteType::Quad;
+                            e.sprite.color = glm::vec3(1.0f);
+                            e.transform.scale = glm::vec2(100.0f, 100.0f);
+                            e.transform.position = wp;
+                            e.sprite.texturePath = path;
+                            sceneManager->AddEntity(e);
+                        }
+                    }
+                }
+                if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload("PREFAB_PATH")) {
+                    InstantiatePrefab(ctx, std::string((const char*)p->Data), wp);
+                }
+                ImGui::EndDragDropTarget();
+            }
+        } else {
+            m_SceneHovered = false;
+            m_SceneFocused = false;
+        }
 
-    ImGui::End();
-    ImGui::PopStyleVar();
+        ImGui::End();
+        ImGui::PopStyleVar();
+    } else {
+        m_SceneHovered = false;
+        m_SceneFocused = false;
+    }
+
+    // ===== GAME VIEW =====
+    if (m_ShowGame) {
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        bool gameVisible = ImGui::Begin("Game");
+        m_GameImageSize = ImVec2(0, 0); // пока не убедились, что вью реально рисуется
+
+        if (gameVisible) {
+            ImVec2 avail = ImGui::GetContentRegionAvail();
+            m_GameSize = glm::vec2(avail.x, avail.y);
+
+            if (m_HasGameCamera) {
+                scene->RenderGameView(m_GameCamera.get(), sceneManager,
+                                      static_cast<int>(avail.x), static_cast<int>(avail.y));
+                m_GameImagePos = ImGui::GetCursorScreenPos();
+                m_GameImageSize = avail;
+                ImGui::Image((ImTextureID)(intptr_t)scene->GetGameTexture(), avail, ImVec2(0, 1), ImVec2(1, 0));
+            } else {
+                ImGui::TextDisabled("No Camera in scene. Use GameObject > Create Camera.");
+            }
+        }
+
+        ImGui::End();
+        ImGui::PopStyleVar();
+    } else {
+        m_GameImageSize = ImVec2(0, 0);
+    }
 
     // ===== HIERARCHY =====
-    ImGui::Begin("Hierarchy");
-    auto& entities = sceneManager->GetEntities();
-    for (size_t i = 0; i < entities.size(); i++) {
-        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Leaf;
-        if (sceneManager->GetSelectedEntity() == static_cast<int>(i))
-            flags |= ImGuiTreeNodeFlags_Selected;
-
-        bool open = ImGui::TreeNodeEx(entities[i].name.c_str(), flags);
-        if (ImGui::IsItemClicked()) {
-            sceneManager->SetSelectedEntity(static_cast<int>(i));
-        }
-        if (open) ImGui::TreePop();
-    }
-    ImGui::End();
+    if (m_ShowHierarchy) RenderHierarchy(ctx);
 
     // ===== INSPECTOR =====
+    if (m_ShowInspector) RenderInspector(ctx);
+
+    // ===== PROJECT / ASSET BROWSER =====
+    if (m_ShowProject) RenderProject(ctx);
+
+    // ===== DIALOGS =====
+    RenderNewEntityDialog(sceneManager);
+    RenderRenameDialog(sceneManager);
+    RenderSceneBrowser(ctx);
+    RenderSceneConfirm(ctx);
+    RenderPrefabSaveDialog(ctx);
+    RenderAssetDialogs(ctx);
+    RenderProjectDialogs(ctx);
+    RenderFolderPicker(ctx);
+    RenderSettings(ctx);
+    RenderBuildDialog(ctx);
+    RenderCodeWindow(ctx);
+
+    // ===== RUNTIME UI OVERLAY (Play/Pause) =====
+    RenderGameUIOverlay(ctx);
+}
+
+void GUI::RenderHierarchy(EditorContext& ctx) {
+    ImGui::Begin("Hierarchy");
+    SceneManager* sceneManager = ctx.sceneManager;
+    auto& entities = sceneManager->GetEntities();
+
+    // groupId -> индексы детей; ключ 0 — корни
+    std::unordered_set<uint32_t> validIds;
+    for (const auto& e : entities) validIds.insert(e.id);
+    std::unordered_map<uint32_t, std::vector<size_t>> children;
+    for (size_t i = 0; i < entities.size(); i++) {
+        uint32_t key = 0;
+        if (entities[i].parentId != 0 && validIds.count(entities[i].parentId))
+            key = entities[i].parentId;
+        children[key].push_back(i);
+    }
+
+    for (size_t root : children[0])
+        RenderEntityNode(ctx, root, children, 0);
+
+    // Дроп в пустую область — отцепить, создать объект из ассета или инстанцировать префаб
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload("ENTITY_INDEX")) {
+            sceneManager->SetParent(*(const size_t*)p->Data, SIZE_MAX);
+        }
+        if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
+            fs::path path((const char*)p->Data);
+            std::string ext = ExtLower(path);
+            if (IsImageExt(ext)) {
+                Entity e;
+                e.name = path.filename().string();
+                e.sprite.type = SpriteType::Quad;
+                e.sprite.color = glm::vec3(1.0f);
+                e.transform.scale = glm::vec2(100.0f, 100.0f);
+                e.transform.position = ctx.camera->GetPosition();
+                e.sprite.texturePath = path.string();
+                sceneManager->AddEntity(e);
+            }
+        }
+        if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload("PREFAB_PATH")) {
+            InstantiatePrefab(ctx, std::string((const char*)p->Data), ctx.camera->GetPosition());
+        }
+        ImGui::EndDragDropTarget();
+    }
+
+    ImGui::End();
+}
+
+void GUI::RenderEntityNode(EditorContext& ctx, size_t index,
+                           const std::unordered_map<uint32_t, std::vector<size_t>>& children, int depth) {
+    if (depth > 32) return;
+    SceneManager* sceneManager = ctx.sceneManager;
+    auto& entities = sceneManager->GetEntities();
+    if (index >= entities.size()) return;
+    Entity& entity = entities[index];
+
+    auto it = children.find(entity.id);
+    bool hasChildren = it != children.end() && !it->second.empty();
+
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick
+                             | ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth;
+    if (!hasChildren) flags |= ImGuiTreeNodeFlags_Leaf;
+    if (sceneManager->GetSelectedEntity() == static_cast<int>(index))
+        flags |= ImGuiTreeNodeFlags_Selected;
+
+    ImGui::PushID(static_cast<int>(index));
+
+    std::string label = entity.name;
+    if (!entity.prefabSource.empty()) label += " [prf]";
+    bool open = ImGui::TreeNodeEx(label.c_str(), flags);
+
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+        sceneManager->SetSelectedEntity(static_cast<int>(index));
+
+    if (ImGui::BeginDragDropSource()) {
+        ImGui::SetDragDropPayload("ENTITY_INDEX", &index, sizeof(size_t));
+        ImGui::Text("%s", entity.name.c_str());
+        ImGui::EndDragDropSource();
+    }
+
+    // Дроп на узел: середина — ребёнком; верх/низ вставки — сиблингом перед/после.
+    // Картинка -> текстура; префаб -> ребёнком этого узла
+    if (ImGui::BeginDragDropTarget()) {
+        ImVec2 rmin = ImGui::GetItemRectMin(), rmax = ImGui::GetItemRectMax();
+        float h = rmax.y - rmin.y;
+        float t = h > 1.0f ? (ImGui::GetMousePos().y - rmin.y) / h : 0.5f;
+        const int dropMode = (t < 0.33f) ? -1 : (t > 0.67f ? 1 : 0);
+
+        if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload("ENTITY_INDEX")) {
+            size_t srcIdx = *(const size_t*)p->Data;
+            auto& ents = sceneManager->GetEntities();
+            if (srcIdx < ents.size()) {
+                if (dropMode == 0) sceneManager->SetParent(srcIdx, index);
+                else sceneManager->MoveEntity(ents[srcIdx].id, entity.id, dropMode);
+            }
+        }
+        if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
+            fs::path path((const char*)p->Data);
+            std::string ext = ExtLower(path);
+            if (IsImageExt(ext)) entity.sprite.texturePath = path.string();
+            else if (ext == ".wav" || ext == ".mp3" || ext == ".ogg" || ext == ".flac")
+                entity.audio.path = path.string();
+        }
+        if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload("PREFAB_PATH")) {
+            int newRoot = InstantiatePrefab(ctx, std::string((const char*)p->Data),
+                                           Transforms::WorldPosition(entities, entity));
+            if (newRoot >= 0) sceneManager->SetParent(static_cast<size_t>(newRoot), index);
+        }
+        ImGui::EndDragDropTarget();
+    }
+
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+        ImGui::OpenPopup("HierarchyContext");
+        sceneManager->SetSelectedEntity(static_cast<int>(index));
+    }
+
+    if (ImGui::BeginPopup("HierarchyContext")) {
+        m_PopupOpen = true;
+        if (ImGui::MenuItem("Rename", "F2")) {
+            m_ShowRenameDialog = true;
+            m_RenameIndex = static_cast<int>(index);
+            strcpy(m_RenameBuffer, entity.name.c_str());
+        }
+        if (ImGui::MenuItem("Duplicate", "Ctrl+D")) {
+            sceneManager->DuplicateSubtree(index);
+        }
+        if (entity.parentId != 0 && ImGui::MenuItem("Detach from Parent")) {
+            sceneManager->SetParent(index, SIZE_MAX);
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Save as Prefab")) {
+            m_ShowPrefabSaveDialog = true;
+            m_PrefabSourceIndex = static_cast<int>(index);
+            m_PrefabSaveDir = "assets/prefabs";
+            snprintf(m_PrefabNameBuf, sizeof(m_PrefabNameBuf), "%s", entity.name.c_str());
+        }
+        if (!entity.prefabSource.empty() && ImGui::MenuItem("Revert to Prefab")) {
+            RevertToPrefab(ctx, index);
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Delete", "Del")) {
+            sceneManager->DeleteSubtree(index);
+        }
+        ImGui::EndPopup();
+    }
+
+    if (open) {
+        if (hasChildren) {
+            for (size_t child : it->second)
+                RenderEntityNode(ctx, child, children, depth + 1);
+        }
+        ImGui::TreePop();
+    }
+    ImGui::PopID();
+}
+
+void GUI::RenderInspector(EditorContext& ctx) {
     ImGui::Begin("Inspector");
+    SceneManager* sceneManager = ctx.sceneManager;
     Entity* selected = sceneManager->GetSelectedEntityPtr();
     if (selected) {
+        // --- Префаб-заголовок ---
+        if (!selected->prefabSource.empty()) {
+            ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "[prf] %s",
+                               fs::path(selected->prefabSource).filename().string().c_str());
+            if (ImGui::SmallButton("Revert to Prefab")) {
+                int si = sceneManager->GetSelectedEntity();
+                if (si >= 0) RevertToPrefab(ctx, static_cast<size_t>(si));
+            }
+            ImGui::Separator();
+        }
+
+        // --- Parent (нельзя выбрать себя, своих детей и потомков) ---
+        auto& ents = sceneManager->GetEntities();
+        int selIdx = sceneManager->GetSelectedEntity();
+        std::vector<size_t> candidates;
+        candidates.push_back(SIZE_MAX); // None
+        for (size_t i = 0; i < ents.size(); i++) {
+            if (static_cast<int>(i) == selIdx) continue;
+            if (ents[i].id == selected->id) continue;
+            if (Transforms::IsDescendantOf(ents, ents[i].id, selected->id)) continue;
+            candidates.push_back(i);
+        }
+        int currentItem = 0;
+        for (size_t k = 0; k < candidates.size(); k++) {
+            if (candidates[k] < ents.size() && ents[candidates[k]].id == selected->parentId)
+                currentItem = static_cast<int>(k);
+        }
+        const Entity* parentEnt = Transforms::FindById(ents, selected->parentId);
+        std::string preview = parentEnt ? parentEnt->name : "None";
+        if (ImGui::BeginCombo("Parent", preview.c_str())) {
+            for (size_t k = 0; k < candidates.size(); k++) {
+                std::string lbl = candidates[k] == SIZE_MAX ? "None" : ents[candidates[k]].name;
+                if (ImGui::Selectable(lbl.c_str(), static_cast<int>(k) == currentItem)) {
+                    if (selIdx >= 0) sceneManager->SetParent(static_cast<size_t>(selIdx), candidates[k]);
+                }
+            }
+            ImGui::EndCombo();
+        }
+
         ImGui::Text("Transform");
         ImGui::DragFloat2("Position", &selected->transform.position.x, 1.0f);
         ImGui::DragFloat("Rotation", &selected->transform.rotation, 1.0f);
@@ -222,13 +1091,1563 @@ void GUI::RenderEditorPanels(Camera* camera, SceneManager* sceneManager, Scene* 
             selected->sprite.type = static_cast<SpriteType>(type);
         }
         ImGui::ColorEdit3("Color", &selected->sprite.color.r);
+
+        if (selected->id != m_InspectorEntityId) {
+            m_InspectorEntityId = selected->id;
+            snprintf(m_TexturePathBuffer, sizeof(m_TexturePathBuffer),
+                     "%s", selected->sprite.texturePath.c_str());
+            snprintf(m_UILabelBuffer, sizeof(m_UILabelBuffer), "%s", selected->ui.label.c_str());
+            snprintf(m_ScriptPathBuffer, sizeof(m_ScriptPathBuffer), "%s", selected->scriptPath.c_str());
+            snprintf(m_AudioPathBuffer, sizeof(m_AudioPathBuffer), "%s", selected->audio.path.c_str());
+        }
+        ImGui::InputText("Texture Path", m_TexturePathBuffer, sizeof(m_TexturePathBuffer));
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            selected->sprite.texturePath = m_TexturePathBuffer;
+        } else if (!ImGui::IsItemActive() && selected->sprite.texturePath != m_TexturePathBuffer) {
+            // значение поменялось извне (Project-панель, загрузка сцены)
+            snprintf(m_TexturePathBuffer, sizeof(m_TexturePathBuffer),
+                     "%s", selected->sprite.texturePath.c_str());
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Clear")) {
+            selected->sprite.texturePath.clear();
+            m_TexturePathBuffer[0] = '\0';
+        }
+
+        // --- Пользовательский шейдер ---
+        ImGui::Text("Custom Shader");
+        std::vector<std::string> shaderBases;
+        std::error_code ec;
+        if (fs::is_directory("assets/shaders", ec)) {
+            for (const auto& entry : fs::directory_iterator("assets/shaders", ec)) {
+                if (entry.is_directory()) continue;
+                std::string ext = ExtLower(entry.path());
+                // Достаточно одного .frag: вертекс с EngineQuadVert даёт движок
+                if (ext == ".frag")
+                    shaderBases.push_back("assets/shaders/" + entry.path().stem().string());
+            }
+        }
+        std::sort(shaderBases.begin(), shaderBases.end());
+        std::string shaderPreview = selected->sprite.shaderPath.empty()
+            ? "(engine default)" : fs::path(selected->sprite.shaderPath).filename().string();
+        if (ImGui::BeginCombo("##shader", shaderPreview.c_str())) {
+            if (ImGui::Selectable("(engine default)", selected->sprite.shaderPath.empty()))
+                selected->sprite.shaderPath.clear();
+            for (const auto& base : shaderBases) {
+                if (ImGui::Selectable(fs::path(base).filename().string().c_str(),
+                                      selected->sprite.shaderPath == base))
+                    selected->sprite.shaderPath = base;
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Reload")) {
+            ctx.renderer->ClearProjectCaches(); // пересобирает и шейдеры, и текстуры
+        }
+        ImGui::TextDisabled("API: достаточно только .frag (вертекс даёт движок).\nХелперы: v_UV, EngineUV, EngineCircleMask, EngineRoundedBox, EngineRing,\nEngineRotate, EngineNoise, EngineFbm, EngineSwirl, EnginePalette, EngineRainbow, EnginePulse");
+
+        ImGui::Separator();
+        ImGui::Text("Rigidbody");
+        ImGui::Checkbox("Is Kinematic", &selected->rigidbody.isKinematic);
+        ImGui::DragFloat2("Velocity", &selected->rigidbody.velocity.x, 1.0f);
+        ImGui::DragFloat("Mass", &selected->rigidbody.mass, 0.1f, 0.01f, 1000.0f);
+        ImGui::DragFloat("Drag", &selected->rigidbody.drag, 0.01f, 0.0f, 1.0f);
+        ImGui::Checkbox("Use Gravity", &selected->rigidbody.useGravity);
+
+        ImGui::Separator();
+        ImGui::Text("Collider");
+        const char* colliderTypes[] = { "None", "Box", "Circle" };
+        int ct = static_cast<int>(selected->collider.type);
+        if (ImGui::Combo("Collider Type", &ct, colliderTypes, 3)) {
+            selected->collider.type = static_cast<ColliderType>(ct);
+        }
+        ImGui::Checkbox("Is Trigger", &selected->collider.isTrigger);
+        if (selected->collider.type == ColliderType::Box) {
+            ImGui::DragFloat2("Size", &selected->collider.size.x, 1.0f, 0.1f, 10000.0f);
+        } else if (selected->collider.type == ColliderType::Circle) {
+            ImGui::DragFloat("Radius", &selected->collider.radius, 1.0f, 0.1f, 10000.0f);
+        }
+
+        if (selected->hasCamera) {
+            ImGui::Separator();
+            ImGui::Text("Camera");
+            ImGui::Checkbox("Main Camera", &selected->camera.mainCamera);
+            ImGui::DragFloat("Zoom", &selected->camera.zoom, 0.01f, 0.1f, 20.0f);
+            ImGui::DragFloat2("Viewport Offset", &selected->camera.offset.x, 1.0f);
+        }
+
+        // --- UI Element ---
+        ImGui::Separator();
+        ImGui::Text("UI Element");
+        ImGui::Checkbox("Has UI", &selected->hasUI);
+        if (selected->hasUI) {
+            const char* kinds[] = { "Button", "Text", "Slider", "Checkbox", "Progress Bar" };
+            int k = static_cast<int>(selected->ui.kind);
+            if (ImGui::Combo("Kind", &k, kinds, 5)) selected->ui.kind = static_cast<UIKind>(k);
+
+            ImGui::InputText("Label", m_UILabelBuffer, sizeof(m_UILabelBuffer));
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                selected->ui.label = m_UILabelBuffer;
+            } else if (!ImGui::IsItemActive() && selected->ui.label != m_UILabelBuffer) {
+                snprintf(m_UILabelBuffer, sizeof(m_UILabelBuffer), "%s", selected->ui.label.c_str());
+            }
+
+            if (selected->ui.kind == UIKind::Slider || selected->ui.kind == UIKind::ProgressBar ||
+                selected->ui.kind == UIKind::Checkbox) {
+                ImGui::DragFloat("Min", &selected->ui.minValue, 0.01f);
+                ImGui::DragFloat("Max", &selected->ui.maxValue, 0.01f, selected->ui.minValue + 0.001f);
+                ImGui::DragFloat("Value", &selected->ui.value, 0.01f,
+                                 selected->ui.minValue, selected->ui.maxValue);
+            }
+            ImGui::Checkbox("Interactable", &selected->ui.interactable);
+
+            ImGui::SeparatorText("Style");
+            ImGui::ColorEdit4("Text Color", &selected->ui.textColor.r);
+            ImGui::ColorEdit4("Bg Color", &selected->ui.bgColor.r);
+            const char* fontNames[] = { "Default", "Medium", "Large" };
+            int fs = selected->ui.fontScale;
+            if (ImGui::Combo("Font", &fs, fontNames, 3)) selected->ui.fontScale = fs;
+
+            ImGui::TextDisabled("Position/Size — мировые единицы (совпадают с gizmo в Scene);\n"
+                                "в Game-view экранные пиксели = масштаб камеры Game-view.");
+        }
+
+        // --- Audio Source ---
+        ImGui::Separator();
+        ImGui::Text("Audio Source");
+        ImGui::InputText("Clip Path", m_AudioPathBuffer, sizeof(m_AudioPathBuffer));
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            selected->audio.path = m_AudioPathBuffer;
+        } else if (!ImGui::IsItemActive() && selected->audio.path != m_AudioPathBuffer) {
+            snprintf(m_AudioPathBuffer, sizeof(m_AudioPathBuffer), "%s", selected->audio.path.c_str());
+        }
+        ImGui::DragFloat("Volume", &selected->audio.volume, 0.01f, 0.0f, 2.0f);
+        ImGui::DragFloat("Pitch", &selected->audio.pitch, 0.01f, 0.1f, 3.0f);
+        ImGui::Checkbox("Loop", &selected->audio.loop);
+        ImGui::Checkbox("Play On Awake", &selected->audio.playOnAwake);
+        if (!selected->audio.path.empty()) {
+            if (ImGui::Button("Preview")) Audio::PlayOneShot(selected->audio.path, selected->audio.volume, selected->audio.pitch);
+            ImGui::SameLine();
+            if (ImGui::Button("Stop Preview")) Audio::StopAll();
+        }
+
+        // --- Script ---
+        ImGui::Separator();
+        ImGui::Text("Script (C++)");
+        std::vector<std::string> scriptPaths;
+        if (fs::is_directory("assets/scripts", ec)) {
+            for (const auto& entry : fs::directory_iterator("assets/scripts", ec)) {
+                if (entry.is_directory()) continue;
+                if (ExtLower(entry.path()) == ".cpp")
+                    scriptPaths.push_back("assets/scripts/" + entry.path().filename().string());
+            }
+        }
+        std::sort(scriptPaths.begin(), scriptPaths.end());
+        std::string scriptPreview = selected->scriptPath.empty()
+            ? "(none)" : fs::path(selected->scriptPath).filename().string();
+        if (ImGui::BeginCombo("##script", scriptPreview.c_str())) {
+            if (ImGui::Selectable("(none)", selected->scriptPath.empty()))
+                selected->scriptPath.clear();
+            for (const auto& sp : scriptPaths) {
+                if (ImGui::Selectable(fs::path(sp).filename().string().c_str(),
+                                      selected->scriptPath == sp))
+                    selected->scriptPath = sp;
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Clear##script")) selected->scriptPath.clear();
+        if (!selected->scriptPath.empty() && !fs::exists(selected->scriptPath, ec))
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.2f, 1.0f), "Файл не найден: %s", selected->scriptPath.c_str());
+        ImGui::TextDisabled("Компилируется при входе в Play; API: Script, Owner(), Scene(), SCRIPT_ENTRY(Класс)");
     } else {
         ImGui::TextDisabled("Select an object to inspect");
     }
     ImGui::End();
+}
 
-    // ===== PROJECT =====
+// ===== PROJECT PANEL: Unity-подобный браузер ассетов =====
+void GUI::RenderProject(EditorContext& ctx) {
     ImGui::Begin("Project");
-    ImGui::Text("Assets");
+    SceneManager* sceneManager = ctx.sceneManager;
+
+    // --- Вкладки Assets / Console ---
+    {
+        int errCount = ConsoleLog::ErrorCount();
+        char consoleLabel[64];
+        if (errCount > 0) snprintf(consoleLabel, sizeof(consoleLabel), "Console (%d)###consoletab", errCount);
+        else snprintf(consoleLabel, sizeof(consoleLabel), "Console###consoletab");
+
+        if (ImGui::BeginTabBar("##projectTabs")) {
+            if (ImGui::BeginTabItem("Assets###assetstab")) { m_ProjectConsoleTab = false; ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem(consoleLabel)) { m_ProjectConsoleTab = true; ImGui::EndTabItem(); }
+            ImGui::EndTabBar();
+        }
+
+        if (m_ProjectConsoleTab) {
+            if (ImGui::Button("Clear")) ConsoleLog::Clear();
+            ImGui::SameLine();
+            if (ImGui::Button("Copy All")) {
+                std::string all;
+                for (const auto& e : ConsoleLog::Entries()) { all += e.text; all += '\n'; }
+                if (!all.empty()) ImGui::SetClipboardText(all.c_str());
+            }
+            ImGui::SameLine();
+            ImGui::Checkbox("Follow", &m_ConsoleFollow);
+            ImGui::SameLine();
+            ImGui::TextDisabled("%zu строк — клик по строке копирует её", ConsoleLog::Entries().size());
+
+            const auto& entries = ConsoleLog::Entries();
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 1));
+            ImGui::BeginChild("##console", ImVec2(0, 0), false);
+            // до добавления строк: если и так внизу — подстраховать за выводом
+            bool atBottom = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f;
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            for (size_t i = 0; i < entries.size(); i++) {
+                const auto& e = entries[i];
+                ImGui::PushID(static_cast<int>(i));
+                ImVec2 p = ImGui::GetCursorScreenPos();
+                float lineH = ImGui::GetTextLineHeight();
+                float textW = ImGui::CalcTextSize(e.text.c_str()).x;
+                ImGui::InvisibleButton("##ln", ImVec2(ImMax(textW + 8.0f, ImGui::GetContentRegionAvail().x), lineH));
+                if (ImGui::IsItemHovered())
+                    dl->AddRectFilled(p, ImVec2(p.x + ImGui::GetItemRectSize().x, p.y + lineH),
+                                      IM_COL32(255, 255, 255, 18));
+                if (ImGui::IsItemClicked())
+                    ImGui::SetClipboardText(e.text.c_str());
+                dl->AddText(ImVec2(p.x + 2.0f, p.y),
+                            e.error ? IM_COL32(255, 115, 100, 255) : IM_COL32(215, 215, 215, 255),
+                            e.text.c_str());
+                ImGui::PopID();
+            }
+            if (m_ConsoleFollow && atBottom) ImGui::SetScrollHereY(1.0f);
+            ImGui::EndChild();
+            ImGui::PopStyleVar();
+
+            m_ProjectPanelFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+            ImGui::End();
+            return;
+        }
+    }
+
+    std::error_code ec;
+    if (!fs::is_directory(m_BrowsePath, ec)) m_BrowsePath = "assets";
+
+    // --- Тулбар ---
+    if (ImGui::Button("<")) {
+        fs::path p(m_BrowsePath);
+        if (p != "assets" && p.has_parent_path()) m_BrowsePath = p.parent_path().string();
+    }
+    ImGui::SameLine();
+    RenderBreadcrumb(m_BrowsePath, "assets");
+
+    ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 230.0f);
+    ImGui::SetNextItemWidth(150.0f);
+    ImGui::InputTextWithHint("##search", "Search...", m_ProjectSearch, sizeof(m_ProjectSearch));
+    ImGui::SameLine();
+    if (ImGui::Button(m_ProjectGrid ? "[Grid]" : "[List]")) m_ProjectGrid = !m_ProjectGrid;
+
+    if (ImGui::Button("Create")) ImGui::OpenPopup("CreateMenu");
+    if (ImGui::BeginPopup("CreateMenu")) {
+        m_PopupOpen = true;
+        if (ImGui::MenuItem("Folder")) {
+            fs::path created = UniquePath(m_BrowsePath, "New Folder", "");
+            fs::create_directories(created, ec);
+            if (!ec) m_SelectedAsset = created.string();
+        }
+        if (ImGui::MenuItem("Shader (vert+frag pair)")) {
+            fs::path vert = UniquePath(m_BrowsePath == "assets" ? fs::path("assets/shaders") : fs::path(m_BrowsePath),
+                                       "NewShader", ".vert");
+            fs::create_directories(vert.parent_path(), ec);
+            std::string stem = vert.stem().string();
+            std::ofstream vf(vert);
+            if (vf.is_open()) {
+                vf << "// API движка: a_Pos, u_MVP, u_Model, u_ViewProj, u_Time, u_ScreenSize, EngineUV()\n"
+                      "out vec2 vUV;\n"
+                      "void main() {\n"
+                      "    vUV = EngineUV();\n"
+                      "    gl_Position = u_MVP * vec4(a_Pos, 0.0, 1.0);\n"
+                      "}\n";
+                vf.close();
+                fs::path frag = vert;
+                frag.replace_extension(".frag");
+                std::ofstream ff(frag);
+                if (ff.is_open()) {
+                    ff << "// API движка: fragColor, u_Color, u_Texture, u_Time, u_ScreenSize, EngineCircleMask(uv)\n"
+                          "in vec2 vUV;\n"
+                          "void main() {\n"
+                          "    fragColor = vec4(u_Color, 1.0) * texture(u_Texture, vUV);\n"
+                          "}\n";
+                    ff.close();
+                }
+                m_SelectedAsset = vert.string();
+            }
+        }
+        if (ImGui::MenuItem("Script (.cpp)")) {
+            fs::path cpp = UniquePath(m_BrowsePath == "assets" ? fs::path("assets/scripts") : fs::path(m_BrowsePath),
+                                      "NewScript", ".cpp");
+            fs::create_directories(cpp.parent_path(), ec);
+            std::string cls = cpp.stem().string();
+            char upper = cls.empty() ? 'S' : static_cast<char>(std::toupper(static_cast<unsigned char>(cls[0])));
+            cls = upper + cls.substr(1);
+            std::ofstream cf(cpp);
+            if (cf.is_open()) {
+                cf << "// Движок сам подключает ScriptAPI и базовые заголовки — инклюды не нужны.\n"
+                      "// Хуки: Start(), Update(dt), OnDestroy(). Хелперы: Owner(), Scene(), WorldPosition(), Translate().\n\n"
+                      "class " << cls << " : public Script {\n"
+                      "public:\n"
+                      "    void Update(float dt) override {\n"
+                      "        Entity* e = Owner();\n"
+                      "        if (!e) return;\n"
+                      "        (void)dt;\n"
+                      "    }\n"
+                      "};\n\n"
+                      "SCRIPT_ENTRY(" << cls << ")\n";
+                m_SelectedAsset = cpp.string();
+                OpenCodeFile(cpp.string());
+            }
+        }
+        if (ImGui::MenuItem("Import File...")) {
+            m_FolderPickerTarget = 3;
+            m_FolderPickerPickFile = true;
+            m_FolderPickerPath = GuiHomeDir().string();
+        }
+        ImGui::EndPopup();
+    }
+
+    // --- Список содержимого ---
+    std::vector<fs::path> dirs, files;
+    const std::string filter = ToLower(m_ProjectSearch);
+    for (const auto& entry : fs::directory_iterator(m_BrowsePath, ec)) {
+        std::string name = ToLower(entry.path().filename().string());
+        if (!filter.empty() && name.find(filter) == std::string::npos) continue;
+        if (entry.is_directory()) dirs.push_back(entry.path());
+        else files.push_back(entry.path());
+    }
+    auto byName = [](const fs::path& a, const fs::path& b) {
+        return a.filename().string() < b.filename().string();
+    };
+    std::sort(dirs.begin(), dirs.end(), byName);
+    std::sort(files.begin(), files.end(), byName);
+
+    if (ec) ImGui::TextDisabled("(unreadable folder)");
+    else if (dirs.empty() && files.empty()) ImGui::TextDisabled("(empty — use Create)");
+
+    // Общая логика двойного клика и контекстного меню для папки/файла
+    auto assetContext = [&](const fs::path& path, bool isDir) {
+        if (ImGui::BeginPopup("AssetCtx")) {
+            m_PopupOpen = true;
+            std::string ext = isDir ? "" : ExtLower(path);
+            if (isDir) {
+                if (ImGui::MenuItem("Open")) m_BrowsePath = path.string();
+            }
+            if (ext == ".prefab" && ImGui::MenuItem("Instantiate in Scene")) {
+                InstantiatePrefab(ctx, path.string(), ctx.camera->GetPosition());
+            }
+            if (IsImageExt(ext) && sceneManager->GetSelectedEntityPtr() &&
+                ImGui::MenuItem("Assign to Selected Object")) {
+                sceneManager->GetSelectedEntityPtr()->sprite.texturePath = path.string();
+            }
+            if ((ext == ".vert" || ext == ".frag") && sceneManager->GetSelectedEntityPtr() &&
+                ImGui::MenuItem("Assign Shader to Selected")) {
+                fs::path base = path;
+                base.replace_extension("");
+                std::string basePath = base.string();
+                fs::path other = path;
+                other.replace_extension(ext == ".vert" ? ".frag" : ".vert");
+                if (ext == ".frag" || fs::exists(other))
+                    sceneManager->GetSelectedEntityPtr()->sprite.shaderPath = basePath;
+            }
+            if (!isDir && IsCodeExt(ext) && ImGui::MenuItem("Edit (built-in IDE)")) {
+                OpenCodeFile(path.string());
+            }
+            if (!isDir && ImGui::MenuItem("Open Externally")) {
+                OpenExternally(path.string());
+            }
+            if (path != "assets") {
+                if (ImGui::MenuItem("Rename")) {
+                    m_RenameAssetPath = path.string();
+                    snprintf(m_AssetNameBuffer, sizeof(m_AssetNameBuffer), "%s",
+                             path.filename().string().c_str());
+                }
+                if (ImGui::MenuItem("Delete")) {
+                    m_PendingDelete = path.string();
+                    m_ShowDeleteConfirm = true;
+                }
+            }
+            ImGui::EndPopup();
+        }
+    };
+
+    auto onDouble = [&](const fs::path& path, bool isDir) {
+        if (isDir) { m_BrowsePath = path.string(); return; }
+        std::string ext = ExtLower(path);
+        if (ext == ".scene") {
+            RequestOpenScene(ctx, path.string());
+        } else if (ext == ".wav" || ext == ".mp3" || ext == ".ogg" || ext == ".flac") {
+            Audio::PlayOneShot(path.string()); // превью клипа в редакторе
+        } else if (IsImageExt(ext)) {
+            Entity* ent = sceneManager->GetSelectedEntityPtr();
+            if (ent) ent->sprite.texturePath = path.string();
+        } else if (ext == ".prefab") {
+            InstantiatePrefab(ctx, path.string(), ctx.camera->GetPosition());
+        } else if (ext == ".vert" || ext == ".frag") {
+            Entity* ent = sceneManager->GetSelectedEntityPtr();
+            if (ent) {
+                fs::path base = path;
+                base.replace_extension("");
+                fs::path other = path;
+                other.replace_extension(ext == ".vert" ? ".frag" : ".vert");
+                if (ext == ".frag" || fs::exists(other)) ent->sprite.shaderPath = base.string();
+            }
+            if (ext == ".vert" || ext == ".frag") OpenCodeFile(path.string()); // и назначили, и открыли
+        } else if (IsCodeExt(ext)) {
+            OpenCodeFile(path.string());
+        }
+    };
+
+    auto dragSource = [&](const fs::path& path) {
+        std::string ext = ExtLower(path);
+        const char* payload = nullptr;
+        if (IsImageExt(ext) || ext == ".wav" || ext == ".mp3" || ext == ".ogg" || ext == ".flac")
+            payload = "ASSET_PATH";
+        else if (ext == ".prefab") payload = "PREFAB_PATH";
+        if (!payload) return;
+        if (ImGui::BeginDragDropSource()) {
+            std::string s = path.string();
+            ImGui::SetDragDropPayload(payload, s.c_str(), s.size() + 1);
+            ImGui::Text("%s", path.filename().string().c_str());
+            ImGui::EndDragDropSource();
+        }
+    };
+
+    if (m_ProjectGrid) {
+        // --- Grid ---
+        const float tileW = 104.0f, tileH = 104.0f;
+        int cols = ImMax(1, static_cast<int>(ImGui::GetContentRegionAvail().x / (tileW + 6.0f)));
+        int i = 0;
+        auto tile = [&](const fs::path& path, bool isDir) {
+            if (i > 0 && i % cols == 0) ImGui::NewLine();
+            else if (i > 0) ImGui::SameLine();
+            i++;
+            ImGui::PushID(path.string().c_str());
+            bool selected = (m_SelectedAsset == path.string());
+            GLuint tex = 0;
+            if (!isDir && IsImageExt(ExtLower(path))) tex = ctx.renderer->GetTexture(path.string());
+
+            ImVec2 pos = ImGui::GetCursorScreenPos();
+            ImGui::InvisibleButton("##tile", ImVec2(tileW, tileH));
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) m_SelectedAsset = path.string();
+            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) onDouble(path, isDir);
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                m_SelectedAsset = path.string();
+                ImGui::OpenPopup("AssetCtx");
+            }
+            dragSource(path);
+
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            ImVec2 sz(tileW, tileH);
+            ImVec2 corner(pos.x + tileW, pos.y + tileH);
+            if (selected) dl->AddRectFilled(pos, corner, IM_COL32(90, 60, 25, 160));
+            if (ImGui::IsItemHovered()) dl->AddRect(pos, corner, IM_COL32(160, 160, 160, 160));
+
+            std::string name = path.filename().string();
+            auto textW = [&](const char* t) {
+                return ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, 0.0f, t).x;
+            };
+            // иконка/превью по центру
+            float iconTop = pos.y + 8.0f;
+            if (tex) {
+                dl->AddImage((ImTextureID)(intptr_t)tex,
+                             ImVec2(pos.x + (tileW - 64) * 0.5f, iconTop),
+                             ImVec2(pos.x + (tileW + 64) * 0.5f, iconTop + 64.0f));
+            } else {
+                const char* icon = isDir ? "[dir]" : AssetIcon(ExtLower(path));
+                dl->AddText(ImVec2(pos.x + (tileW - textW(icon)) * 0.5f, iconTop + 24.0f),
+                            isDir ? IM_COL32(235, 200, 90, 255) : IM_COL32(200, 200, 200, 255), icon);
+            }
+            // имя с обрезкой по ширине плитки
+            dl->PushClipRect(pos, corner, true);
+            if (textW(name.c_str()) > tileW - 6.0f) {
+                size_t keep = name.size();
+                while (keep > 1 && textW(name.substr(0, keep).c_str()) > tileW - 20.0f) keep--;
+                name = name.substr(0, keep) + "..";
+            }
+            dl->AddText(ImVec2(pos.x + (tileW - textW(name.c_str())) * 0.5f, pos.y + tileH - 24.0f),
+                        IM_COL32(220, 220, 220, 255), name.c_str());
+            dl->PopClipRect();
+
+            assetContext(path, isDir);
+            ImGui::PopID();
+        };
+        for (const auto& d : dirs) tile(d, true);
+        for (const auto& f : files) tile(f, false);
+        if (i) ImGui::NewLine();
+    } else {
+        // --- List ---
+        auto row = [&](const fs::path& path, bool isDir) {
+            ImGui::PushID(path.string().c_str());
+            bool selected = (m_SelectedAsset == path.string());
+            GLuint tex = 0;
+            if (!isDir && IsImageExt(ExtLower(path))) tex = ctx.renderer->GetTexture(path.string());
+            if (tex) {
+                float th = ImGui::GetTextLineHeightWithSpacing() * 1.2f;
+                ImGui::Image((ImTextureID)(intptr_t)tex, ImVec2(th, th));
+                ImGui::SameLine();
+            }
+            std::string label = (isDir ? std::string("[dir] ") : std::string(AssetIcon(ExtLower(path))) + " ")
+                              + path.filename().string();
+            if (ImGui::Selectable(label.c_str(), selected, ImGuiTreeNodeFlags_SpanAvailWidth))
+                m_SelectedAsset = path.string();
+            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                onDouble(path, isDir);
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                m_SelectedAsset = path.string();
+                ImGui::OpenPopup("AssetCtx");
+            }
+            if (tex && ImGui::IsItemHovered()) {
+                ImGui::BeginTooltip();
+                ImGui::Image((ImTextureID)(intptr_t)tex, ImVec2(256, 256));
+                ImGui::EndTooltip();
+            }
+            dragSource(path);
+            assetContext(path, isDir);
+            ImGui::PopID();
+        };
+        for (const auto& d : dirs) row(d, true);
+        for (const auto& f : files) row(f, false);
+    }
+
+    // Дроп объекта из Hierarchy -> сохранить как префаб в текущую папку
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload("ENTITY_INDEX")) {
+            size_t idx = *(const size_t*)p->Data;
+            auto& ents = sceneManager->GetEntities();
+            if (idx < ents.size()) {
+                m_ShowPrefabSaveDialog = true;
+                m_PrefabSourceIndex = static_cast<int>(idx);
+                m_PrefabSaveDir = m_BrowsePath;
+                snprintf(m_PrefabNameBuf, sizeof(m_PrefabNameBuf), "%s", ents[idx].name.c_str());
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
+
+    m_ProjectPanelFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
     ImGui::End();
+}
+
+// ===== BROWSER СЦЕН =====
+void GUI::RenderSceneBrowser(EditorContext& ctx) {
+    if (!m_ShowSceneBrowser) return;
+
+    const char* title = m_SceneBrowserSave ? "Save Scene" : "Open Scene";
+    ImGui::OpenPopup(title);
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(520, 420), ImGuiCond_Appearing);
+
+    if (ImGui::BeginPopupModal(title, &m_ShowSceneBrowser, 0)) {
+        m_PopupOpen = true;
+        std::error_code ec;
+        if (!fs::is_directory(m_SceneBrowserDir, ec)) m_SceneBrowserDir = "assets";
+
+        if (ImGui::Button("..")) {
+            fs::path p(m_SceneBrowserDir);
+            if (p != "assets" && p.has_parent_path()) m_SceneBrowserDir = p.parent_path().string();
+        }
+        ImGui::SameLine();
+        RenderBreadcrumb(m_SceneBrowserDir, "assets");
+        ImGui::Separator();
+
+        // папки
+        std::vector<fs::path> dirs, scenes;
+        for (const auto& entry : fs::directory_iterator(m_SceneBrowserDir, ec)) {
+            if (entry.is_directory()) dirs.push_back(entry.path());
+            else if (ExtLower(entry.path()) == ".scene") scenes.push_back(entry.path());
+        }
+        auto byName = [](const fs::path& a, const fs::path& b) {
+            return a.filename().string() < b.filename().string();
+        };
+        std::sort(dirs.begin(), dirs.end(), byName);
+        std::sort(scenes.begin(), scenes.end(), byName);
+
+        ImGui::BeginChild("SceneList");
+        for (const auto& d : dirs) {
+            ImGui::PushID(d.string().c_str());
+            std::string label = "[dir] " + d.filename().string();
+            if (ImGui::Selectable(label.c_str(), false, ImGuiTreeNodeFlags_SpanAvailWidth) ||
+                (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)))
+                m_SceneBrowserDir = d.string();
+            ImGui::PopID();
+        }
+        for (const auto& s : scenes) {
+            ImGui::PushID(s.string().c_str());
+            std::string label = "[scn] " + s.filename().string();
+            bool sel = (m_SceneBrowserSelected == s.string());
+            if (ImGui::Selectable(label.c_str(), sel, ImGuiTreeNodeFlags_SpanAvailWidth)) {
+                m_SceneBrowserSelected = s.string();
+                if (!m_SceneBrowserSave) {
+                    RequestOpenScene(ctx, m_SceneBrowserSelected);
+                    m_ShowSceneBrowser = false;
+                } else {
+                    snprintf(m_SceneBrowserNameBuf, sizeof(m_SceneBrowserNameBuf), "%s",
+                             s.filename().string().c_str());
+                }
+            }
+            if (sel && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0) && !m_SceneBrowserSave) {
+                RequestOpenScene(ctx, m_SceneBrowserSelected);
+                m_ShowSceneBrowser = false;
+            }
+            ImGui::PopID();
+        }
+        if (ec) ImGui::TextDisabled("(unreadable folder)");
+        else if (dirs.empty() && scenes.empty()) ImGui::TextDisabled("(no scenes here)");
+        ImGui::EndChild();
+
+        ImGui::Separator();
+        if (m_SceneBrowserSave) {
+            ImGui::InputText("Name", m_SceneBrowserNameBuf, sizeof(m_SceneBrowserNameBuf));
+            std::string name = m_SceneBrowserNameBuf;
+            if (name.empty()) ImGui::TextDisabled("Enter a file name");
+            else {
+                if (ExtLower(name) != ".scene") name += ".scene";
+                ImGui::TextDisabled("-> %s", (fs::path(m_SceneBrowserDir) / name).string().c_str());
+            }
+        } else {
+            ImGui::TextDisabled("%s", m_SceneBrowserSelected.empty()
+                ? "Select a scene, double-click to open" : m_SceneBrowserSelected.c_str());
+        }
+
+        if (ImGui::Button("OK", ImVec2(120, 0))) {
+            if (m_SceneBrowserSave) {
+                std::string name = m_SceneBrowserNameBuf;
+                if (!name.empty()) {
+                    if (ExtLower(name) != ".scene") name += ".scene";
+                    fs::path full = fs::path(m_SceneBrowserDir) / name;
+                    fs::create_directories(full.parent_path(), ec);
+                    ctx.serializer->Save(ctx.sceneManager, full.string());
+                    {
+                        m_CurrentScenePath = full.string();
+                        MarkSceneSaved(ctx);
+                        if (!m_SceneBrowserAfterOpen.empty()) {
+                            std::string open = m_SceneBrowserAfterOpen;
+                            m_SceneBrowserAfterOpen.clear();
+                            LoadSceneAsset(ctx, open);
+                        } else if (m_SceneBrowserAfterNew) {
+                            m_SceneBrowserAfterNew = false;
+                            DoNewScene(ctx);
+                        }
+                        m_ShowSceneBrowser = false;
+                    }
+                }
+            } else if (!m_SceneBrowserSelected.empty()) {
+                RequestOpenScene(ctx, m_SceneBrowserSelected);
+                m_ShowSceneBrowser = false;
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            m_ShowSceneBrowser = false;
+            m_SceneBrowserAfterOpen.clear();
+            m_SceneBrowserAfterNew = false;
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) m_ShowSceneBrowser = false;
+        ImGui::EndPopup();
+    }
+}
+
+// ===== CONFIRM: несохранённая сцена =====
+void GUI::RenderSceneConfirm(EditorContext& ctx) {
+    if (!m_ShowSceneConfirm) return;
+
+    ImGui::OpenPopup("Unsaved Changes");
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+    if (ImGui::BeginPopupModal("Unsaved Changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        m_PopupOpen = true;
+        std::string sceneName = m_CurrentScenePath.empty() ? "Untitled"
+                             : fs::path(m_CurrentScenePath).filename().string();
+        ImGui::Text("Scene '%s' has unsaved changes.", sceneName.c_str());
+        ImGui::Spacing();
+
+        auto finish = [&](bool doAction) {
+            m_ShowSceneConfirm = false;
+            if (!doAction) { m_PendingAction = 0; m_PendingScenePath.clear(); return; }
+            int action = m_PendingAction;
+            std::string path = m_PendingScenePath;
+            m_PendingAction = 0;
+            m_PendingScenePath.clear();
+            if (action == 1) DoNewScene(ctx);
+            else if (action == 2) LoadSceneAsset(ctx, path);
+        };
+
+        if (ImGui::Button("Save", ImVec2(120, 0))) {
+            if (m_CurrentScenePath.empty()) {
+                // новая сцена: сначала Save As, действие продолжится после сохранения
+                m_SceneBrowserAfterOpen = (m_PendingAction == 2) ? m_PendingScenePath : "";
+                m_SceneBrowserAfterNew = (m_PendingAction == 1);
+                m_PendingAction = 0;
+                m_PendingScenePath.clear();
+                OpenSceneSaveAs(ctx);
+                m_ShowSceneConfirm = false;
+            } else {
+                SaveSceneNow(ctx);
+                finish(true);
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Don't Save", ImVec2(120, 0))) {
+            finish(true);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            finish(false);
+            ImGui::CloseCurrentPopup();
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            finish(false);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
+// ===== SAVE AS PREFAB =====
+void GUI::RenderPrefabSaveDialog(EditorContext& ctx) {
+    if (!m_ShowPrefabSaveDialog) return;
+
+    ImGui::OpenPopup("Save as Prefab");
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+    if (ImGui::BeginPopupModal("Save as Prefab", &m_ShowPrefabSaveDialog, ImGuiWindowFlags_AlwaysAutoResize)) {
+        m_PopupOpen = true;
+        auto& ents = ctx.sceneManager->GetEntities();
+        bool valid = m_PrefabSourceIndex >= 0 &&
+                     m_PrefabSourceIndex < static_cast<int>(ents.size());
+        if (!valid) {
+            ImGui::TextDisabled("Source object is gone.");
+            if (ImGui::Button("Close")) m_ShowPrefabSaveDialog = false;
+            ImGui::EndPopup();
+            return;
+        }
+        Entity& root = ents[m_PrefabSourceIndex];
+        std::vector<size_t> idxs;
+        ctx.sceneManager->CollectSubtree(static_cast<size_t>(m_PrefabSourceIndex), idxs);
+        ImGui::Text("Object: %s  (subtree: %zu entities)", root.name.c_str(), idxs.size());
+        ImGui::InputText("Name", m_PrefabNameBuf, sizeof(m_PrefabNameBuf));
+        ImGui::TextDisabled("-> %s/%s.prefab", m_PrefabSaveDir.c_str(), m_PrefabNameBuf);
+
+        if (ImGui::Button("Save", ImVec2(120, 0))) {
+            std::string name = m_PrefabNameBuf;
+            for (auto& c : name) if (c == '/' || c == '\\') c = '_';
+            if (name.empty()) name = "Prefab";
+            std::error_code ec;
+            fs::create_directories(m_PrefabSaveDir, ec);
+            fs::path full = fs::path(m_PrefabSaveDir) / (name + ".prefab");
+            if (ctx.serializer->SaveEntities(ctx.sceneManager->GetSubtree(
+                    static_cast<size_t>(m_PrefabSourceIndex)), full.string())) {
+                ents[m_PrefabSourceIndex].prefabSource = full.string();
+                m_ShowPrefabSaveDialog = false;
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            m_ShowPrefabSaveDialog = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
+void GUI::RenderAssetDialogs(EditorContext& ctx) {
+    (void)ctx;
+    // Переименование
+    if (!m_RenameAssetPath.empty()) {
+        ImGui::OpenPopup("Rename Asset");
+        if (ImGui::BeginPopupModal("Rename Asset", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            m_PopupOpen = true;
+            ImGui::Text("%s", m_RenameAssetPath.c_str());
+            ImGui::InputText("Name", m_AssetNameBuffer, sizeof(m_AssetNameBuffer));
+            if (ImGui::Button("OK")) {
+                fs::path oldPath(m_RenameAssetPath);
+                fs::path newPath = oldPath.parent_path() / m_AssetNameBuffer;
+                std::error_code ec;
+                fs::rename(oldPath, newPath, ec);
+                if (m_SelectedAsset == m_RenameAssetPath) m_SelectedAsset = newPath.string();
+                m_RenameAssetPath.clear();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel")) {
+                m_RenameAssetPath.clear();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+    }
+
+    // Удаление с подтверждением
+    if (m_ShowDeleteConfirm) {
+        ImGui::OpenPopup("Delete Asset");
+        if (ImGui::BeginPopupModal("Delete Asset", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            m_PopupOpen = true;
+            ImGui::Text("Delete permanently?\n%s", m_PendingDelete.c_str());
+            if (ImGui::Button("Delete")) {
+                std::error_code ec;
+                fs::remove_all(m_PendingDelete, ec);
+                if (m_SelectedAsset == m_PendingDelete) m_SelectedAsset.clear();
+                if (m_BrowsePath == m_PendingDelete ||
+                    ToLower(m_BrowsePath).find(ToLower(m_PendingDelete) + "/") == 0)
+                    m_BrowsePath = "assets";
+                m_PendingDelete.clear();
+                m_ShowDeleteConfirm = false;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel")) {
+                m_PendingDelete.clear();
+                m_ShowDeleteConfirm = false;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+    }
+}
+
+void GUI::RenderProjectDialogs(EditorContext& ctx) {
+    if (m_ShowNewProjectDialog) {
+        ImGui::OpenPopup("New Project");
+        if (ImGui::BeginPopupModal("New Project", &m_ShowNewProjectDialog, ImGuiWindowFlags_AlwaysAutoResize)) {
+            m_PopupOpen = true;
+            ImGui::InputText("Name", m_NewProjectName, sizeof(m_NewProjectName));
+            ImGui::InputText("Location", m_NewProjectLocation, sizeof(m_NewProjectLocation));
+            ImGui::SameLine();
+            if (ImGui::Button("Browse...")) {
+                m_FolderPickerTarget = 1;
+                m_FolderPickerPath = m_NewProjectLocation[0] ? m_NewProjectLocation : GuiHomeDir().string();
+            }
+            if (!m_ProjectError.empty()) {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", m_ProjectError.c_str());
+            }
+            if (ImGui::Button("Create")) {
+                if (ctx.projectManager->CreateProject(m_NewProjectLocation, m_NewProjectName)) {
+                    ApplyProject(ctx);
+                    m_ShowNewProjectDialog = false;
+                    m_ShowProjectManagerWindow = false;
+                } else {
+                    m_ProjectError = ctx.projectManager->LastError();
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel")) {
+                m_ShowNewProjectDialog = false;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+    }
+
+    if (m_ShowOpenProjectDialog) {
+        ImGui::OpenPopup("Open Project");
+        if (ImGui::BeginPopupModal("Open Project", &m_ShowOpenProjectDialog, ImGuiWindowFlags_AlwaysAutoResize)) {
+            m_PopupOpen = true;
+            ImGui::InputText("Project folder", m_OpenProjectPath, sizeof(m_OpenProjectPath));
+            ImGui::SameLine();
+            if (ImGui::Button("Browse...")) {
+                m_FolderPickerTarget = 2;
+                m_FolderPickerPath = m_OpenProjectPath[0] ? m_OpenProjectPath : GuiHomeDir().string();
+            }
+            if (!m_ProjectError.empty()) {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", m_ProjectError.c_str());
+            }
+            if (ImGui::Button("Open")) {
+                if (ctx.projectManager->OpenProject(m_OpenProjectPath)) {
+                    ApplyProject(ctx);
+                    m_ShowOpenProjectDialog = false;
+                } else {
+                    m_ProjectError = ctx.projectManager->LastError();
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel")) {
+                m_ShowOpenProjectDialog = false;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+    }
+
+    if (m_ShowProjectManagerWindow) {
+        ImGui::Begin("Project Manager", &m_ShowProjectManagerWindow);
+        ImGui::Text("Current project: %s", ctx.projectManager->CurrentProjectName().c_str());
+        ImGui::Separator();
+        if (ImGui::Button("New Project...")) m_ShowNewProjectDialog = true;
+        ImGui::SameLine();
+        if (ImGui::Button("Open Project...")) m_ShowOpenProjectDialog = true;
+        ImGui::Separator();
+        ImGui::Text("Recent projects:");
+        const auto& recent = ctx.projectManager->GetRecent();
+        if (recent.empty()) ImGui::TextDisabled("(none)");
+        for (const auto& path : recent) {
+            std::string label = fs::path(path).filename().string() + "  ##" + path;
+            if (ImGui::Selectable(label.c_str())) {
+                if (ctx.projectManager->OpenProject(path)) {
+                    ApplyProject(ctx);
+                    m_ShowProjectManagerWindow = false;
+                } else {
+                    m_ProjectError = ctx.projectManager->LastError();
+                }
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", path.c_str());
+        }
+        ImGui::End();
+    }
+}
+
+void GUI::RenderFolderPicker(EditorContext& ctx) {
+    if (m_FolderPickerTarget == 0) return;
+
+    const char* title = m_FolderPickerPickFile ? "Select File to Import" : "Select Folder";
+    ImGui::OpenPopup(title);
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(420, 420), ImGuiCond_Appearing);
+
+    if (ImGui::BeginPopupModal(title, nullptr, 0)) {
+        m_PopupOpen = true;
+        std::error_code ec;
+        if (!fs::is_directory(m_FolderPickerPath, ec))
+            m_FolderPickerPath = GuiHomeDir().string();
+
+        // Ручной ввод пути + переход
+        char pathBuf[1024];
+        snprintf(pathBuf, sizeof(pathBuf), "%s", m_FolderPickerPath.c_str());
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 90.0f);
+        ImGui::InputText("##path", pathBuf, sizeof(pathBuf));
+        ImGui::SameLine();
+        if (ImGui::Button("Go To")) {
+            if (fs::is_directory(pathBuf)) m_FolderPickerPath = pathBuf;
+        }
+
+        ImGui::Separator();
+        if (ImGui::Button(".. Parent")) {
+            fs::path p(m_FolderPickerPath);
+            if (p.has_parent_path()) m_FolderPickerPath = p.parent_path().string();
+        }
+
+        ImGui::BeginChild("FolderList");
+        std::vector<fs::path> subDirs, subFiles;
+        for (const auto& entry : fs::directory_iterator(m_FolderPickerPath, ec)) {
+            if (entry.is_directory()) subDirs.push_back(entry.path());
+            else subFiles.push_back(entry.path());
+        }
+        auto byName = [](const fs::path& a, const fs::path& b) {
+            return a.filename().string() < b.filename().string();
+        };
+        std::sort(subDirs.begin(), subDirs.end(), byName);
+        std::sort(subFiles.begin(), subFiles.end(), byName);
+        for (const auto& p : subDirs) {
+            std::string label = p.filename().string() + "/";
+            if (ImGui::Selectable(label.c_str(), false, ImGuiTreeNodeFlags_SpanAvailWidth))
+                m_FolderPickerPath = p.string();
+        }
+        if (m_FolderPickerPickFile) {
+            for (const auto& p : subFiles) {
+                std::string label = std::string(AssetIcon(ExtLower(p))) + " " + p.filename().string();
+                if (ImGui::Selectable(label.c_str(), false, ImGuiTreeNodeFlags_SpanAvailWidth)) {
+                    ImportFileToAssets(ctx, p.string());
+                    m_FolderPickerTarget = 0;
+                    m_FolderPickerPickFile = false;
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+        }
+        if (ec) ImGui::TextDisabled("(unreadable folder)");
+        ImGui::EndChild();
+
+        ImGui::Separator();
+        ImGui::TextDisabled("%s", m_FolderPickerPath.c_str());
+        if (!m_FolderPickerPickFile) {
+            if (ImGui::Button("Use This Folder", ImVec2(160, 0))) {
+                if (m_FolderPickerTarget == 4) {
+                    snprintf(m_BuildDirBuf, sizeof(m_BuildDirBuf), "%s", m_FolderPickerPath.c_str());
+                } else {
+                    char* dest = m_FolderPickerTarget == 1 ? m_NewProjectLocation : m_OpenProjectPath;
+                    size_t cap = m_FolderPickerTarget == 1 ? sizeof(m_NewProjectLocation) : sizeof(m_OpenProjectPath);
+                    snprintf(dest, cap, "%s", m_FolderPickerPath.c_str());
+                }
+                m_FolderPickerTarget = 0;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+        }
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            m_FolderPickerTarget = 0;
+            m_FolderPickerPickFile = false;
+            ImGui::CloseCurrentPopup();
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            m_FolderPickerTarget = 0;
+            m_FolderPickerPickFile = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
+void GUI::RenderSettings(EditorContext& ctx) {
+    (void)ctx;
+    if (!m_ShowSettings) return;
+
+    ImGui::OpenPopup("Engine Settings");
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(420, 0), ImGuiCond_Always);
+
+    if (ImGui::BeginPopupModal("Engine Settings", &m_ShowSettings, ImGuiWindowFlags_AlwaysAutoResize)) {
+        m_PopupOpen = true;
+
+        if (ImGui::CollapsingHeader("Physics", ImGuiTreeNodeFlags_DefaultOpen)) {
+            glm::vec2 g = Physics::Gravity / Physics::PixelsPerMeter; // в метрах/с^2, как в Unity
+            if (ImGui::DragFloat2("Gravity", &g.x, 0.1f, -50.0f, 50.0f, "%.2f m/s²"))
+                Physics::Gravity = g * Physics::PixelsPerMeter;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("0, -9.81 — как в Unity. По оси Y вверх положительно.");
+            if (ImGui::Button("Reset##gravity"))
+                Physics::Gravity = glm::vec2(0.0f, -9.81f) * Physics::PixelsPerMeter;
+        }
+
+        if (ImGui::CollapsingHeader("Time", ImGuiTreeNodeFlags_DefaultOpen)) {
+            float ts = Scripting::DefaultTimeScale();
+            if (ImGui::SliderFloat("Time scale", &ts, 0.0f, 4.0f, "%.2f"))
+                Scripting::SetDefaultTimeScale(ts);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Умножает dt для скриптов и физики. Применяется при входе в Play.");
+            if (ImGui::Button("Reset##time"))
+                Scripting::SetDefaultTimeScale(1.0f);
+        }
+
+        if (ImGui::CollapsingHeader("Audio", ImGuiTreeNodeFlags_DefaultOpen)) {
+            float vol = Audio::MasterVolume();
+            if (ImGui::SliderFloat("Master volume", &vol, 0.0f, 1.0f, "%.2f"))
+                Audio::SetMasterVolume(vol);
+            bool muted = Audio::IsMuted();
+            if (ImGui::Checkbox("Mute", &muted))
+                Audio::SetMuted(muted);
+            const std::string& err = Audio::LastError();
+            if (!err.empty())
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Device: %s", err.c_str());
+            else if (!Audio::Init())
+                ImGui::TextDisabled("Аудиоустройство ещё не создано (или недоступно).");
+            else
+                ImGui::TextDisabled("Устройство активно.");
+        }
+
+        ImGui::Separator();
+        if (ImGui::Button("Close", ImVec2(120, 0)))
+            m_ShowSettings = false;
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape))
+            m_ShowSettings = false;
+        ImGui::EndPopup();
+    }
+}
+
+void GUI::RenderNewEntityDialog(SceneManager* sceneManager) {
+    if (!m_ShowNewEntityDialog) return;
+
+    ImGui::OpenPopup("Create Entity");
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+    if (ImGui::BeginPopupModal("Create Entity", &m_ShowNewEntityDialog, ImGuiWindowFlags_AlwaysAutoResize)) {
+        m_PopupOpen = true;
+        ImGui::Text("Name:");
+        ImGui::InputText("##name", m_NewEntityName, sizeof(m_NewEntityName));
+
+        if (ImGui::Button("Create", ImVec2(120, 0))) {
+            Entity e;
+            e.name = m_NewEntityName;
+            e.transform.scale = glm::vec2(100.0f, 100.0f);
+            if (m_NewEntityType == 1) {
+                e.sprite.type = SpriteType::Quad;
+                e.collider.type = ColliderType::Box;
+                e.collider.size = glm::vec2(50.0f, 50.0f);
+            } else {
+                e.sprite.type = SpriteType::Circle;
+                e.collider.type = ColliderType::Circle;
+                e.collider.radius = 50.0f;
+            }
+            e.sprite.color = glm::vec3(1.0f, 1.0f, 1.0f);
+            sceneManager->AddEntity(e);
+            m_ShowNewEntityDialog = false;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            m_ShowNewEntityDialog = false;
+        }
+        ImGui::EndPopup();
+    }
+}
+
+void GUI::RenderRenameDialog(SceneManager* sceneManager) {
+    if (!m_ShowRenameDialog) return;
+
+    ImGui::OpenPopup("Rename Entity");
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+    if (ImGui::BeginPopupModal("Rename Entity", &m_ShowRenameDialog, ImGuiWindowFlags_AlwaysAutoResize)) {
+        m_PopupOpen = true;
+        ImGui::InputText("Name", m_RenameBuffer, sizeof(m_RenameBuffer));
+
+        if (ImGui::Button("OK", ImVec2(120, 0))) {
+            auto& entities = sceneManager->GetEntities();
+            if (m_RenameIndex >= 0 && m_RenameIndex < static_cast<int>(entities.size())) {
+                entities[m_RenameIndex].name = m_RenameBuffer;
+            }
+            m_ShowRenameDialog = false;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            m_ShowRenameDialog = false;
+        }
+        ImGui::EndPopup();
+    }
+}
+
+// ===== RUNTIME UI: оверлей в Game-view (мировые координаты, стиль, шрифты) =====
+void GUI::RenderGameUIOverlay(EditorContext& ctx) {
+    EditorState st = *ctx.state;
+    GameUI::BeginFrame();
+    if (!m_ShowGame || m_GameImageSize.x < 2) return;
+
+    auto& entities = ctx.sceneManager->GetEntities();
+    bool any = false;
+    for (const auto& e : entities) {
+        if (e.hasUI && e.active) { any = true; break; }
+    }
+    if (!any) return;
+
+    const bool editable = (st != EditorState::Edit);
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                             ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+                             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings |
+                             ImGuiWindowFlags_NoBackground;
+    // В Edit оверлей — только превью: не должен перехватывать мышь вообще
+    if (!editable) flags |= ImGuiWindowFlags_NoInputs;
+    ImGui::SetNextWindowPos(m_GameImagePos);
+    ImGui::SetNextWindowSize(m_GameImageSize);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, editable ? 1.0f : 0.9f);
+    ImGui::Begin("GameUIOverlay", nullptr, flags);
+    ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindowRead());
+
+    // мировые единицы -> пиксели Game-view (та же математика, что у орто-камеры)
+    const float viewH = 1080.0f * m_GameCamera->GetZoom();
+    const float s = m_GameImageSize.y / viewH;
+    const glm::vec2 cam = m_GameCamera->GetPosition();
+
+    for (auto& e : entities) {
+        if (!e.hasUI || !e.active) continue;
+
+        glm::vec2 wp = Transforms::WorldPosition(entities, e);
+        glm::vec2 cpx(m_GameImageSize.x * 0.5f + (wp.x - cam.x) * s,
+                      m_GameImageSize.y * 0.5f - (wp.y - cam.y) * s);
+
+        float wpx = std::max(e.transform.scale.x * s, 16.0f);
+        float hpx = std::max(e.transform.scale.y * s, 0.0f);
+
+        const ImVec4 tc(e.ui.textColor.r, e.ui.textColor.g, e.ui.textColor.b, e.ui.textColor.a);
+        ImGui::PushID(e.id);
+        if (e.ui.fontScale > 0) {
+            ImFont* f = (e.ui.fontScale == 1) ? m_FontMedium : m_FontLarge;
+            if (f) ImGui::PushFont(f);
+        }
+        ImGui::SetCursorPos(ImVec2(cpx.x - wpx * 0.5f, cpx.y - hpx * 0.5f));
+
+        const ImVec4 bg(e.ui.bgColor.r, e.ui.bgColor.g, e.ui.bgColor.b, e.ui.bgColor.a);
+        auto lighter = [](ImVec4 c, float k) {
+            return ImVec4(c.x + (1.0f - c.x) * k, c.y + (1.0f - c.y) * k, c.z + (1.0f - c.z) * k, c.w);
+        };
+        ImGui::PushStyleColor(ImGuiCol_Text, tc);
+
+        if (!editable || !e.ui.interactable) ImGui::BeginDisabled();
+        switch (e.ui.kind) {
+            case UIKind::Button: {
+                ImGui::PushStyleColor(ImGuiCol_Button, bg);
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, lighter(bg, editable ? 0.25f : 0.1f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, lighter(bg, 0.45f));
+                ImVec2 sz(wpx, hpx > 4.0f ? hpx : 0.0f);
+                ImGui::ButtonEx(e.ui.label.c_str(), sz);
+                if (editable && e.ui.interactable && ImGui::IsItemClicked()) GameUI::ReportClick(e.id);
+                ImGui::PopStyleColor(3);
+            } break;
+            case UIKind::Text:
+                ImGui::TextUnformatted(e.ui.label.c_str());
+                break;
+            case UIKind::Slider: {
+                ImGui::PushStyleColor(ImGuiCol_FrameBg, bg);
+                ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, lighter(bg, 0.25f));
+                ImGui::PushStyleColor(ImGuiCol_FrameBgActive, lighter(bg, 0.4f));
+                ImGui::PushStyleColor(ImGuiCol_SliderGrab, lighter(bg, 0.7f));
+                ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, ImVec4(1, 1, 1, 1));
+                ImGui::PushItemWidth(wpx);
+                ImGui::SliderFloat("##v", &e.ui.value, e.ui.minValue, e.ui.maxValue);
+                if (editable) GameUI::ReportValue(e.id, e.ui.value);
+                ImGui::PopItemWidth();
+                ImGui::PopStyleColor(5);
+            } break;
+            case UIKind::Checkbox: {
+                bool on = e.ui.value >= (e.ui.minValue + e.ui.maxValue) * 0.5f;
+                ImGui::PushStyleColor(ImGuiCol_CheckMark, tc);
+                ImGui::Checkbox("##c", &on);
+                if (editable && e.ui.interactable && ImGui::IsItemClicked()) {
+                    e.ui.value = on ? e.ui.maxValue : e.ui.minValue;
+                    GameUI::ReportValue(e.id, e.ui.value);
+                    GameUI::ReportClick(e.id);
+                } else if (!editable) {
+                    on = e.ui.value >= (e.ui.minValue + e.ui.maxValue) * 0.5f;
+                }
+                ImGui::SameLine();
+                ImGui::TextUnformatted(e.ui.label.c_str());
+                ImGui::PopStyleColor();
+            } break;
+            case UIKind::ProgressBar: {
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                ImVec2 p0 = ImGui::GetCursorScreenPos();
+                ImVec2 p1(p0.x + wpx, p0.y + (hpx > 4.0f ? hpx : 16.0f));
+                float t = (e.ui.maxValue > e.ui.minValue)
+                    ? (e.ui.value - e.ui.minValue) / (e.ui.maxValue - e.ui.minValue) : 0.0f;
+                t = std::clamp(t, 0.0f, 1.0f);
+                ImU32 bgU = ImGui::GetColorU32(bg);
+                ImU32 fillU = ImGui::GetColorU32(lighter(bg, 0.55f));
+                dl->AddRectFilled(p0, p1, bgU, 3.0f);
+                dl->AddRectFilled(p0, ImVec2(p0.x + (p1.x - p0.x) * t, p1.y), fillU, 3.0f);
+                dl->AddRect(p0, p1, ImGui::GetColorU32(ImVec4(1, 1, 1, 0.25f)), 3.0f);
+                ImVec2 ts = ImGui::CalcTextSize(e.ui.label.c_str());
+                dl->AddText(ImVec2((p0.x + p1.x - ts.x) * 0.5f, (p0.y + p1.y - ts.y) * 0.5f),
+                            ImGui::GetColorU32(tc), e.ui.label.c_str());
+                ImGui::Dummy(ImVec2(p1.x - p0.x, p1.y - p0.y));
+            } break;
+        }
+        if (!editable || !e.ui.interactable) ImGui::EndDisabled();
+        ImGui::PopStyleColor();
+        if (e.ui.fontScale > 0) ImGui::PopFont();
+        ImGui::PopID();
+    }
+
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+}
+
+// ===== PLAYER: кадр без редактора =====
+void GUI::RenderPlayerFrame(EditorContext& ctx, int w, int h) {
+    m_PopupOpen = false;
+    UpdateGameCamera(ctx.sceneManager);
+    m_GameSize = glm::vec2(static_cast<float>(w), static_cast<float>(h));
+    m_ShowGame = true;
+
+    if (m_HasGameCamera)
+        ctx.scene->RenderGameView(m_GameCamera.get(), ctx.sceneManager, w, h);
+
+    m_GameImagePos = ImVec2(0, 0);
+    m_GameImageSize = ImVec2(static_cast<float>(w), static_cast<float>(h));
+
+    GLuint tex = ctx.scene->GetGameTexture();
+    if (tex) {
+        ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs |
+                                 ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus;
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::SetNextWindowSize(ImVec2(w, h));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        ImGui::Begin("##PlayerFrame", nullptr, flags);
+        ImGui::Image((ImTextureID)(intptr_t)tex, ImVec2(w, h), ImVec2(0, 1), ImVec2(1, 0));
+        ImGui::End();
+        ImGui::PopStyleVar();
+    }
+
+    // интерактивный runtime UI поверх
+    RenderGameUIOverlay(ctx);
+}
+
+// ===== ВСТРОЕННЫЙ РЕДАКТОР КОДА =====
+void GUI::OpenCodeFile(const std::string& path) {
+    if (m_CodeDirty && !path.empty() && path != m_CodePath) {
+        std::cout << "[IDE] Сначала сохраните " << m_CodePath << " (Ctrl+S в окне редактора)\n";
+        m_ShowCodeWindow = true;
+        return;
+    }
+    std::error_code ec;
+    if (!fs::is_regular_file(path, ec)) {
+        std::cout << "[IDE] Файл не найден: " << path << "\n";
+        return;
+    }
+    std::ifstream f(path, std::ios::binary);
+    m_CodeText.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+    m_CodePath = path;
+    m_CodeDirty = false;
+    m_ShowCodeWindow = true;
+}
+
+bool GUI::SaveCodeFile() {
+    if (m_CodePath.empty()) return false;
+    std::ofstream f(m_CodePath, std::ios::binary | std::ios::trunc);
+    if (!f.is_open()) {
+        std::cout << "[IDE] Не удалось записать: " << m_CodePath << "\n";
+        return false;
+    }
+    f << m_CodeText;
+    f.close();
+    m_CodeDirty = false;
+    std::cout << "[IDE] Сохранено: " << m_CodePath << "\n";
+    return true;
+}
+
+void GUI::RenderCodeWindow(EditorContext& ctx) {
+    (void)ctx;
+    if (!m_ShowCodeWindow) { m_CodeWindowFocused = false; return; }
+
+    std::string filePart = m_CodePath.empty() ? "(нет файла)"
+                             : fs::path(m_CodePath).filename().string();
+    std::string title = filePart + (m_CodeDirty ? " *" : "") + "  —  Script###astraCodeEditor";
+    ImGui::SetNextWindowSize(ImVec2(720, 520), ImGuiCond_FirstUseEver);
+    ImGui::Begin(title.c_str(), &m_ShowCodeWindow);
+    m_CodeWindowFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+
+    ImGuiIO& io = ImGui::GetIO();
+    if (m_CodeWindowFocused && io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) SaveCodeFile();
+
+    if (ImGui::Button("Save (Ctrl+S)")) SaveCodeFile();
+    ImGui::SameLine();
+    if (ImGui::Button("Reload")) OpenCodeFile(m_CodePath);
+    ImGui::SameLine();
+    if (ImGui::Button("Open Externally")) OpenExternally(m_CodePath);
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", m_CodePath.empty() ? "—" : m_CodePath.c_str());
+
+    if (m_CodePath.empty()) {
+        ImGui::Separator();
+        ImGui::TextWrapped("Двойной клик по .cpp/.h/.frag/.vert/.txt/.json в панели Project — открыть здесь. "
+                           "Ctrl+C / Ctrl+V / Ctrl+X / Ctrl+Z работают нативно.");
+    } else {
+        ImGui::Separator();
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.07f, 0.07f, 0.09f, 1.0f));
+        ImGui::InputTextMultiline("##code", &m_CodeText,
+                                  ImVec2(-8.0f, -ImGui::GetFrameHeight() * 2.0f));
+        ImGui::PopStyleColor();
+        if (ImGui::IsItemEdited()) m_CodeDirty = true;
+    }
+    ImGui::End();
+}
+
+void GUI::OpenExternally(const std::string& path) {
+    if (path.empty() || !fs::exists(path)) return;
+    std::string escaped;
+    for (char c : path) {
+        if (c == '\'') escaped += "'\\''";
+        else escaped += c;
+    }
+    std::string cmd = "xdg-open '" + escaped + "' >/dev/null 2>&1 &";
+    int rc = std::system(cmd.c_str());
+    (void)rc;
+    std::cout << "[Open] " << path << "\n";
+}
+
+void GUI::ImportFileToAssets(EditorContext& ctx, const std::string& srcPath) {
+    fs::path src(srcPath);
+    std::string ext = ExtLower(src);
+    std::string destDir;
+    if (IsImageExt(ext)) destDir = "assets/textures";
+    else if (IsAudioExt(ext)) destDir = "assets/audio";
+    else if (ext == ".scene") destDir = "assets/scenes";
+    else if (ext == ".cpp" || ext == ".h") destDir = "assets/scripts";
+    else if (ext == ".vert" || ext == ".frag") destDir = "assets/shaders";
+    else if (ext == ".prefab") destDir = "assets/prefabs";
+    else destDir = "assets/imported";
+
+    std::error_code ec;
+    fs::create_directories(destDir, ec);
+    fs::path dest = UniquePath(destDir, src.stem().string(), ext);
+    fs::copy_file(src, dest, fs::copy_options::overwrite_existing, ec);
+    if (ec) {
+        std::cerr << "Import failed: " << srcPath << " (" << ec.message() << ")\n";
+        return;
+    }
+    std::cout << "[Import] " << dest.string() << "\n";
+    ctx.renderer->ClearProjectCaches();
+    m_BrowsePath = destDir;
+    m_SelectedAsset = dest.string();
+    if (ext == ".cpp" || ext == ".h") OpenCodeFile(dest.string());
+}
+
+// ===== BUILD GAME =====
+bool GUI::BuildGame(const std::string& destDir, const std::string& scenePath) {
+    std::error_code ec;
+    fs::path dest(destDir);
+    fs::create_directories(dest, ec);
+    if (ec) {
+        m_BuildStatus = "Не удалось создать папку: " + ec.message();
+        std::cerr << "[Build] " << m_BuildStatus << "\n";
+        return false;
+    }
+
+    // 1) движок-плеер = копия текущего бинарника
+    fs::path self = fs::canonical("/proc/self/exe", ec);
+    if (ec || self.empty()) {
+        m_BuildStatus = "Не удалось определить путь к бинарнику";
+        return false;
+    }
+    fs::path exeOut = dest / "astra";
+    fs::copy_file(self, exeOut, fs::copy_options::overwrite_existing, ec);
+    if (ec) {
+        m_BuildStatus = "Копирование бинарника: " + ec.message();
+        return false;
+    }
+    fs::permissions(exeOut,
+                    fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec |
+                    fs::perms::owner_read | fs::perms::owner_write,
+                    fs::perm_options::add, ec);
+    std::cout << "[Build]player: " << exeOut.string() << "\n";
+
+    // 2) assets целиком
+    if (fs::is_directory("assets", ec)) {
+        fs::path assetsOut = dest / "assets";
+        if (fs::exists(assetsOut, ec)) fs::remove_all(assetsOut, ec);
+        std::error_code ec2;
+        fs::recursive_directory_iterator it("assets", fs::directory_options::skip_permission_denied, ec2);
+        for (; it != fs::recursive_directory_iterator(); ++it) {
+            fs::path rel = fs::relative(it->path(), "assets", ec2);
+            fs::path target = assetsOut / rel;
+            if (it->is_directory()) { fs::create_directories(target, ec2); continue; }
+            fs::copy_file(it->path(), target, fs::copy_options::overwrite_existing, ec2);
+        }
+        std::cout << "[Build] assets -> " << assetsOut.string() << "\n";
+    }
+
+    // 3) предкомпиляция скриптов, на которые ссылается сцена
+    fs::create_directories(dest / "build-scripts", ec);
+    std::unordered_set<std::string> scripts;
+    {
+        std::ifstream sf(scenePath);
+        std::string line;
+        while (std::getline(sf, line)) {
+            if (line.rfind("ScriptPath: ", 0) == 0) {
+                std::string p = line.substr(strlen("ScriptPath: "));
+                while (!p.empty() && (p.back() == ' ' || p.back() == '\r')) p.pop_back();
+                if (!p.empty()) scripts.insert(p);
+            }
+        }
+    }
+    bool ok = true;
+    for (const auto& sp : scripts) {
+        std::string so = (fs::path("build-scripts") /
+                          (fs::path(sp).stem().string() + ".so")).string();
+        std::string err;
+        if (!fs::exists(sp, ec)) {
+            std::cerr << "[Build] скрипт не найден: " << sp << "\n";
+            ok = false;
+            continue;
+        }
+        std::cout << "[Build] compile: " << sp << "\n";
+        if (!Scripting::PrecompileScript(sp, so, err)) {
+            std::cerr << "[Build] compile FAILED: " << sp << "\n" << err << "\n";
+            m_BuildStatus = "Ошибка компиляции " + sp;
+            ok = false;
+            continue;
+        }
+        std::error_code ec3;
+        fs::copy_file(so, dest / so, fs::copy_options::overwrite_existing, ec3);
+        if (ec3) { std::cerr << "[Build] copy .so: " << ec3.message() << "\n"; ok = false; }
+    }
+
+    // 4) game.json — стартовая сцена плеера
+    {
+        std::ofstream jf(dest / "game.json");
+        jf << "{\n  \"scene\": \"" << scenePath << "\",\n  \"project\": \"astra-game\"\n}\n";
+    }
+
+    m_BuildStatus = ok
+        ? "Готово: " + dest.string() + "  (запуск: ./astra --play)"
+        : "Готово с ошибками — см. консоль";
+    std::cout << "[Build] " << m_BuildStatus << "\n";
+    return ok;
+}
+
+void GUI::RenderBuildDialog(EditorContext& ctx) {
+    if (!m_ShowBuildDialog) return;
+
+    ImGui::OpenPopup("Build Game");
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(520, 0), ImGuiCond_Appearing);
+
+    if (ImGui::BeginPopupModal("Build Game", &m_ShowBuildDialog, 0)) {
+        m_PopupOpen = true;
+
+        // список сцен: текущая + все assets/scenes/*.scene
+        m_BuildSceneList.clear();
+        m_BuildSceneList.push_back("(текущая сцена)");
+        std::error_code ec;
+        if (fs::is_directory("assets/scenes", ec)) {
+            std::vector<std::string> found;
+            for (const auto& entry : fs::directory_iterator("assets/scenes", ec))
+                if (ExtLower(entry.path()) == ".scene")
+                    found.push_back(entry.path().string());
+            std::sort(found.begin(), found.end());
+            for (auto& f : found) m_BuildSceneList.push_back(std::move(f));
+        }
+        if (m_BuildScene >= static_cast<int>(m_BuildSceneList.size())) m_BuildScene = 0;
+        m_BuildSceneList[0] = m_CurrentScenePath.empty()
+            ? "(текущая сцена — не сохранена!)" : ("(текущая: " + m_CurrentScenePath + ")");
+
+        ImGui::SetNextItemWidth(-1);
+        ImGui::Combo("Scene", &m_BuildScene,
+                     [](void* data, int idx) -> const char* {
+                         auto& v = *static_cast<std::vector<std::string>*>(data);
+                         return v[idx].c_str();
+                     }, &m_BuildSceneList, static_cast<int>(m_BuildSceneList.size()));
+
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 90.0f);
+        ImGui::InputText("Output folder", m_BuildDirBuf, sizeof(m_BuildDirBuf));
+        ImGui::SameLine();
+        if (ImGui::Button("Browse...")) {
+            m_FolderPickerTarget = 4;
+            m_FolderPickerPickFile = false;
+            std::string cur = m_BuildDirBuf;
+            if (fs::is_directory(cur, ec)) m_FolderPickerPath = cur;
+            else m_FolderPickerPath = GuiHomeDir().string();
+        }
+
+        ImGui::Separator();
+        ImGui::TextWrapped("В папку копируются: движок (astra), assets/, предкомпилированные .so скриптов из сцены и game.json со стартовой сценой. "
+                           "Запуск без g++: ./astra --play");
+        if (!m_BuildStatus.empty()) {
+            ImGui::TextWrapped("%s", m_BuildStatus.c_str());
+        }
+
+        if (ImGui::Button("Build", ImVec2(120, 0))) {
+            std::string scene = (m_BuildScene <= 0) ? m_CurrentScenePath : m_BuildSceneList[m_BuildScene];
+            if (scene.empty()) {
+                m_BuildStatus = "Нет сцены: сохраните текущую (Ctrl+S) или выберите файл";
+            } else if (m_CurrentScenePath.empty() || m_SceneDirty) {
+                SaveSceneNow(ctx); // билдим то, что видим
+                scene = m_CurrentScenePath;
+            }
+            if (!scene.empty()) {
+                m_BuildRunning = true;
+                BuildGame(m_BuildDirBuf, scene);
+                m_BuildRunning = false;
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Close", ImVec2(120, 0))) m_ShowBuildDialog = false;
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) m_ShowBuildDialog = false;
+        ImGui::EndPopup();
+    }
 }

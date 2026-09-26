@@ -1,0 +1,117 @@
+Engine2D Scene v1
+EntityCount: 5
+ENTITY
+Name: Checker Quad
+Active: 1
+Pos: 0 0
+Rot: 0
+Scale: 200 100
+SpriteType: 1
+Color: 1 1 1
+TexturePath: assets/textures/checker.png
+RigidbodyKinematic: 0
+RigidbodyVelocity: 0 0
+RigidbodyMass: 1
+RigidbodyDrag: 0
+RigidbodyGravity: 0
+ColliderType: 1
+ColliderTrigger: 0
+ColliderSize: 100 50
+ColliderRadius: 50
+HasCamera: 0
+CameraMain: 0
+CameraZoom: 1
+CameraOffset: 0 0
+END_ENTITY
+ENTITY
+Name: Ground
+Active: 1
+Pos: 0 -300
+Rot: 0
+Scale: 1600 100
+SpriteType: 1
+Color: 0.4 0.4 0.45
+TexturePath: 
+RigidbodyKinematic: 1
+RigidbodyVelocity: 0 0
+RigidbodyMass: 1
+RigidbodyDrag: 0
+RigidbodyGravity: 0
+ColliderType: 1
+ColliderTrigger: 0
+ColliderSize: 800 50
+ColliderRadius: 50
+HasCamera: 0
+CameraMain: 0
+CameraZoom: 1
+CameraOffset: 0 0
+END_ENTITY
+ENTITY
+Name: Falling Ball
+Active: 1
+Pos: -300 300
+Rot: 0
+Scale: 80 80
+SpriteType: 2
+Color: 1 1 1
+TexturePath: assets/textures/checker.png
+RigidbodyKinematic: 0
+RigidbodyVelocity: 0 0
+RigidbodyMass: 1
+RigidbodyDrag: 0
+RigidbodyGravity: 1
+ColliderType: 2
+ColliderTrigger: 0
+ColliderSize: 50 50
+ColliderRadius: 40
+HasCamera: 0
+CameraMain: 0
+CameraZoom: 1
+CameraOffset: 0 0
+END_ENTITY
+ENTITY
+Name: Sensor Zone
+Active: 1
+Pos: -300 -100
+Rot: 0
+Scale: 100 100
+SpriteType: 0
+Color: 1 1 1
+TexturePath: 
+RigidbodyKinematic: 1
+RigidbodyVelocity: 0 0
+RigidbodyMass: 1
+RigidbodyDrag: 0
+RigidbodyGravity: 0
+ColliderType: 1
+ColliderTrigger: 1
+ColliderSize: 150 200
+ColliderRadius: 50
+HasCamera: 0
+CameraMain: 0
+CameraZoom: 1
+CameraOffset: 0 0
+END_ENTITY
+ENTITY
+Name: Main Camera
+Active: 1
+Pos: 0 0
+Rot: 0
+Scale: 100 100
+SpriteType: 0
+Color: 1 1 1
+TexturePath: 
+RigidbodyKinematic: 1
+RigidbodyVelocity: 0 0
+RigidbodyMass: 1
+RigidbodyDrag: 0
+RigidbodyGravity: 0
+ColliderType: 0
+ColliderTrigger: 0
+ColliderSize: 50 50
+ColliderRadius: 50
+HasCamera: 1
+CameraMain: 1
+CameraZoom: 1
+CameraOffset: 0 0
+END_ENTITY

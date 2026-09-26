@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(Engine2D VERSION 0.1.0 LANGUAGES CXX C)
+project(Astra VERSION 0.1.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -33,11 +33,35 @@ FetchContent_Declare(
     GIT_TAG docking
 )
 
+FetchContent_Declare(
+    stb
+    GIT_REPOSITORY https://github.com/nothings/stb.git
+    GIT_TAG master
+    GIT_SHALLOW TRUE
+)
+
+FetchContent_Declare(
+    miniaudio
+    GIT_REPOSITORY https://github.com/mackron/miniaudio.git
+    GIT_TAG master
+    GIT_SHALLOW TRUE
+)
+
 FetchContent_MakeAvailable(glfw glm glad)
 
 FetchContent_GetProperties(imgui)
 if(NOT imgui_POPULATED)
     FetchContent_Populate(imgui)
+endif()
+
+FetchContent_GetProperties(stb)
+if(NOT stb_POPULATED)
+    FetchContent_Populate(stb)
+endif()
+
+FetchContent_GetProperties(miniaudio)
+if(NOT miniaudio_POPULATED)
+    FetchContent_Populate(miniaudio)
 endif()
 
 add_library(imgui STATIC
@@ -46,6 +70,7 @@ add_library(imgui STATIC
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
 )
@@ -65,10 +90,21 @@ add_executable(${PROJECT_NAME}
     src/core/Renderer.cpp
     src/core/Camera.cpp
     src/core/GUI.cpp
+    src/core/GameUI.cpp
+    src/core/Input.cpp
     src/core/Scene.cpp
+    src/core/SceneSerializer.cpp
+    src/core/ProjectManager.cpp
+    src/core/Scripting.cpp
+    src/core/Audio.cpp
+    src/utils/ConsoleLog.cpp
     src/ecs/SceneManager.cpp
+    src/ecs/Physics.cpp
     src/utils/Shader.cpp
     src/utils/Framebuffer.cpp
+    src/utils/Texture.cpp
+    src/vendor/stb_image_impl.cpp
+    src/vendor/miniaudio_impl.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE
@@ -76,13 +112,28 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${glad_SOURCE_DIR}/include
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
+    ${stb_SOURCE_DIR}
+    ${miniaudio_SOURCE_DIR}
 )
+
+# Пути для компиляции игровых скриптов (g++ -shared на Play)
+set(SCRIPT_INCLUDES
+    "-I${CMAKE_SOURCE_DIR}/src -I${glm_SOURCE_DIR} -I${glfw_SOURCE_DIR}/include -I${imgui_SOURCE_DIR} -I${stb_SOURCE_DIR}")
+
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    TEMPLATE_DIR="${CMAKE_SOURCE_DIR}/templates/default_project"
+    SCRIPT_INCLUDES="${SCRIPT_INCLUDES}"
+)
+
+# -rdynamic: скрипты (.so) резолвят символы движка через dlopen
+target_link_options(${PROJECT_NAME} PRIVATE -rdynamic)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     glfw
     glm
     glad
     imgui
+    ${CMAKE_DL_LIBS}
 )
 
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD

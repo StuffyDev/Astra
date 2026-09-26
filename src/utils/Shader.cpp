@@ -16,16 +16,30 @@ Shader::Shader(const std::string& vertexPath, const std::string& fragmentPath) {
     glDeleteShader(fs);
 }
 
+Shader::Shader(const char* vertexSource, const char* fragmentSource) {
+    GLuint vs = CompileShader(GL_VERTEX_SHADER, vertexSource);
+    GLuint fs = CompileShader(GL_FRAGMENT_SHADER, fragmentSource);
+
+    LinkProgram(vs, fs);
+
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+}
+
 Shader::~Shader() {
     glDeleteProgram(m_ID);
 }
 
 void Shader::Use() const {
-    glUseProgram(m_ID);
+    if (m_ID) glUseProgram(m_ID);
 }
 
 void Shader::SetMat4(const std::string& name, const glm::mat4& value) const {
     glUniformMatrix4fv(glGetUniformLocation(m_ID, name.c_str()), 1, GL_FALSE, &value[0][0]);
+}
+
+void Shader::SetVec2(const std::string& name, const glm::vec2& value) const {
+    glUniform2fv(glGetUniformLocation(m_ID, name.c_str()), 1, &value[0]);
 }
 
 void Shader::SetVec3(const std::string& name, const glm::vec3& value) const {
@@ -34,6 +48,10 @@ void Shader::SetVec3(const std::string& name, const glm::vec3& value) const {
 
 void Shader::SetFloat(const std::string& name, float value) const {
     glUniform1f(glGetUniformLocation(m_ID, name.c_str()), value);
+}
+
+void Shader::SetInt(const std::string& name, int value) const {
+    glUniform1i(glGetUniformLocation(m_ID, name.c_str()), value);
 }
 
 std::string Shader::LoadFile(const std::string& path) {
@@ -75,5 +93,7 @@ void Shader::LinkProgram(GLuint vertex, GLuint fragment) {
         char infoLog[512];
         glGetProgramInfoLog(m_ID, 512, nullptr, infoLog);
         std::cerr << "Program link error:\n" << infoLog << "\n";
+        glDeleteProgram(m_ID);
+        m_ID = 0;
     }
 }

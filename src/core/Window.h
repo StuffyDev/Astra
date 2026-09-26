@@ -2,6 +2,7 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <string>
+#include <vector>
 #include <glm/glm.hpp>
 
 class Window {
@@ -28,12 +29,17 @@ public:
     float GetScrollOffset() const { return m_ScrollOffset; }
     void ResetScrollOffset() { m_ScrollOffset = 0.0f; }
 
+    // Файлы, брошенные мышью из ОС в окно (забираем и очищаем)
+    std::vector<std::string> ConsumeDroppedFiles();
+
 private:
     GLFWwindow* m_Window;
     int m_Width, m_Height;
     glm::vec2 m_LastMousePos;
     float m_ScrollOffset = 0.0f;
+    std::vector<std::string> m_DroppedFiles;
 
     static void FramebufferSizeCallback(GLFWwindow* window, int width, int height);
     static void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset);
+    static void DropCallback(GLFWwindow* window, int count, const char** paths);
 };

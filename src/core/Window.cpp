@@ -14,9 +14,19 @@ Window::Window(int width, int height, const std::string& title)
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     GLFWmonitor* monitor = glfwGetPrimaryMonitor();
-    const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+    const GLFWvidmode* mode = monitor ? glfwGetVideoMode(monitor) : nullptr;
+    if (mode) {
+        width = mode->width;
+        height = mode->height;
+    }
 
-    m_Window = glfwCreateWindow(mode->width, mode->height, title.c_str(), monitor, nullptr);
+    // Borderless «максимизированное» окно вместо эксклюзивного fullscreen:
+    // выглядит на весь экран, но не ломает композитор, горячие клавиши и мультимонитор
+    glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+    glfwWindowHint(GLFW_FOCUSED, GLFW_TRUE);
+
+    m_Window = glfwCreateWindow(width, height, title.c_str(), nullptr, nullptr);
 
     if (!m_Window) {
         std::cerr << "Failed to create window\n";
@@ -24,18 +34,25 @@ Window::Window(int width, int height, const std::string& title)
         return;
     }
 
+    if (mode && monitor) {
+        int mx = 0, my = 0;
+        glfwGetMonitorPos(monitor, &mx, &my);
+        glfwSetWindowPos(m_Window, mx, my);
+    }
+
     MakeContextCurrent();
     glfwSetWindowUserPointer(m_Window, this);
     glfwSetFramebufferSizeCallback(m_Window, FramebufferSizeCallback);
     glfwSetScrollCallback(m_Window, ScrollCallback);
+    glfwSetDropCallback(m_Window, DropCallback);
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         std::cerr << "Failed to init GLAD\n";
     }
 
-    glViewport(0, 0, mode->width, mode->height);
-    m_Width = mode->width;
-    m_Height = mode->height;
+    glViewport(0, 0, width, height);
+    m_Width = width;
+    m_Height = height;
 
     double mx, my;
     glfwGetCursorPos(m_Window, &mx, &my);
@@ -88,6 +105,20 @@ void Window::FramebufferSizeCallback(GLFWwindow* window, int width, int height) 
         self->m_Width = width;
         self->m_Height = height;
     }
+}
+
+void Window::DropCallback(GLFWwindow* window, int count, const char** paths) {
+    Window* self = static_cast<Window*>(glfwGetWindowUserPointer(window));
+    if (!self) return;
+    for (int i = 0; i < count; i++) {
+        self->m_DroppedFiles.emplace_back(paths[i]);
+    }
+}
+
+std::vector<std::string> Window::ConsumeDroppedFiles() {
+    std::vector<std::string> result;
+    result.swap(m_DroppedFiles);
+    return result;
 }
 
 void Window::ScrollCallback(GLFWwindow* window, double xoffset, double yoffset) {

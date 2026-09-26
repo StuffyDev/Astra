@@ -1,5 +1,6 @@
 #pragma once
 #include <glm/glm.hpp>
+#include <string>
 
 enum class SpriteType {
     None,
@@ -7,13 +8,80 @@ enum class SpriteType {
     Circle
 };
 
+enum class ColliderType {
+    None,
+    Box,
+    Circle
+};
+
 struct Transform {
     glm::vec2 position = glm::vec2(0.0f);
-    float rotation = 0.0f; // degrees
+    float rotation = 0.0f;
     glm::vec2 scale = glm::vec2(100.0f, 100.0f);
 };
 
 struct Sprite {
     SpriteType type = SpriteType::Quad;
     glm::vec3 color = glm::vec3(1.0f, 1.0f, 1.0f);
+    std::string texturePath;
+    // Пользовательский шейдер: базовый путь без расширения (.vert/.frag рядом).
+    // Пусто — системный шейдер движка.
+    std::string shaderPath;
+};
+
+struct Rigidbody {
+    bool isKinematic = false;
+    glm::vec2 velocity = glm::vec2(0.0f);
+    float mass = 1.0f;
+    float drag = 0.0f;
+    bool useGravity = false;
+};
+
+struct Collider {
+    ColliderType type = ColliderType::None;
+    bool isTrigger = false;
+    // Для Box: половина размера, для Circle: радиус
+    glm::vec2 size = glm::vec2(50.0f, 50.0f);
+    float radius = 50.0f;
+};
+
+struct CameraComponent {
+    bool mainCamera = false;
+    float zoom = 1.0f;
+    glm::vec2 offset = glm::vec2(0.0f, 0.0f);
+};
+
+enum class UIKind {
+    Button,
+    Text,
+    Slider,
+    Checkbox,
+    ProgressBar
+};
+
+// Экранная GUI-нода: рисуется оверлеем в Game-view.
+// transform.position — мировые координаты (совпадают с gizmo в Scene),
+// transform.scale — размер в мировых единицах.
+struct UIComponent {
+    UIKind kind = UIKind::Button;
+    std::string label = "Button";
+    float minValue = 0.0f;
+    float maxValue = 1.0f;
+    float value = 0.5f;
+    bool interactable = true;
+    // Стиль: цвета и шрифт. bgColor — фон кнопки/ползунка/полосы, textColor — текст.
+    glm::vec4 textColor = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+    glm::vec4 bgColor = glm::vec4(0.22f, 0.32f, 0.45f, 1.0f);
+    // 0 = обычный шрифт, 1 = средний, 2 = крупный
+    int fontScale = 0;
+};
+
+// Аналог Unity AudioSource: путь к клипу (wav/mp3/ogg/flac), playOnAwake запускает
+// при входе в Play (и при создании инстанса со скриптом-носителем).
+struct AudioSource {
+    std::string path;
+    float volume = 1.0f;   // 0..1, домножается на мастер-громкость
+    float pitch = 1.0f;    // 0.1..3 — смена высоты/скорости
+    bool loop = false;
+    bool playOnAwake = true;
 };

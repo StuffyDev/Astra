@@ -1,9 +1,17 @@
 #include "core/Renderer.h"
 #include "core/Camera.h"
+#include "core/SystemShaders.h"
 #include "ecs/Entity.h"
+#include "ecs/Physics.h"
+#include "ecs/Transforms.h"
 #include "utils/Shader.h"
+#include "utils/Texture.h"
+#include <GLFW/glfw3.h>
 #include <vector>
 #include <cmath>
+#include <fstream>
+#include <sstream>
+#include <iostream>
 
 Renderer::Renderer() = default;
 Renderer::~Renderer() { Shutdown(); }
@@ -12,13 +20,37 @@ void Renderer::Init() {
     SetupGridBuffers();
     SetupQuad();
     SetupGizmoBuffers();
+    SetupColliderBuffers(); // <-- новое
+    SetupWhiteTexture();
 
-    m_LineShader = std::make_unique<Shader>("assets/shaders/line.vert", "assets/shaders/line.frag");
-    m_SpriteShader = std::make_unique<Shader>("assets/shaders/sprite.vert", "assets/shaders/sprite.frag");
-    m_CircleShader = std::make_unique<Shader>("assets/shaders/sprite.vert", "assets/shaders/circle.frag");
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    CreateShaders();
+}
+
+void Renderer::CreateShaders() {
+    using namespace SystemShaders;
+    m_LineShader = std::make_unique<Shader>(LineVert, LineFrag);
+    m_SpriteShader = std::make_unique<Shader>(SpriteVert, SpriteFrag);
+    m_CircleShader = std::make_unique<Shader>(SpriteVert, CircleFrag);
+    m_SpriteTextureShader = std::make_unique<Shader>(SpriteVert, SpriteTexturedFrag);
+    m_CircleTextureShader = std::make_unique<Shader>(SpriteVert, CircleTexturedFrag);
+}
+
+void Renderer::ClearProjectCaches() {
+    // Текстуры и пользовательские шейдеры привязаны к путям проекта
+    m_TextureCache.clear();
+    m_FailedTextures.clear();
+    m_UserShaderCache.clear();
+    m_FailedUserShaders.clear();
+    // Системные шейдеры вшиты в бинарь — их не трогаем
 }
 
 void Renderer::Shutdown() {
+    m_TextureCache.clear();
+    glDeleteTextures(1, &m_WhiteTexture);
+    m_WhiteTexture = 0;
     glDeleteVertexArrays(1, &m_GridVAO);
     glDeleteBuffers(1, &m_GridVBO);
     glDeleteVertexArrays(1, &m_QuadVAO);
@@ -26,6 +58,8 @@ void Renderer::Shutdown() {
     glDeleteBuffers(1, &m_QuadEBO);
     glDeleteVertexArrays(1, &m_GizmoVAO);
     glDeleteBuffers(1, &m_GizmoVBO);
+    glDeleteVertexArrays(1, &m_ColliderVAO);
+    glDeleteBuffers(1, &m_ColliderVBO);
 }
 
 // ============ GRID ============
@@ -115,6 +149,158 @@ void Renderer::SetupGizmoBuffers() {
     glBindVertexArray(0);
 }
 
+// ============ TEXTURES ============
+void Renderer::SetupWhiteTexture() {
+    unsigned char white[4] = { 255, 255, 255, 255 };
+    glGenTextures(1, &m_WhiteTexture);
+    glBindTexture(GL_TEXTURE_2D, m_WhiteTexture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+GLuint Renderer::GetTexture(const std::string& path) {
+    auto it = m_TextureCache.find(path);
+    if (it != m_TextureCache.end()) return it->second->GetID();
+    if (m_FailedTextures.count(path) > 0) return 0;
+
+    auto texture = std::make_unique<Texture>();
+    if (!texture->LoadFromFile(path)) {
+        m_FailedTextures.insert(path);
+        return 0;
+    }
+    GLuint id = texture->GetID();
+    m_TextureCache.emplace(path, std::move(texture));
+    return id;
+}
+
+// ============ USER SHADERS ============
+// Разработчик пишет только main() (и свои функции/униформы) — всё остальное добавляет движок.
+static const char* kUserVertPrelude =
+    "#version 460 core\n"
+    "layout(location = 0) in vec2 a_Pos;\n"
+    "out vec2 v_UV;\n"
+    "uniform mat4 u_MVP;\n"
+    "uniform mat4 u_Model;\n"
+    "uniform mat4 u_ViewProj;\n"
+    "uniform float u_Time;\n"
+    "uniform vec2 u_ScreenSize;\n"
+    "vec2 EngineUV() { return a_Pos + vec2(0.5f); }\n"
+    // Стандартный квад: вызывает из main(), если вертекс писать не хочется
+    "void EngineQuadVert() {\n"
+    "    v_UV = EngineUV();\n"
+    "    gl_Position = u_MVP * vec4(a_Pos, 0.0, 1.0);\n"
+    "}\n";
+
+static const char* kUserFragPrelude =
+    "#version 460 core\n"
+    "layout(location = 0) out vec4 fragColor;\n"
+    "in vec2 v_UV;\n"
+    "uniform vec3 u_Color;\n"
+    "uniform sampler2D u_Texture;\n"
+    "uniform float u_Time;\n"
+    "uniform vec2 u_ScreenSize;\n"
+    "float EngineCircleMask(vec2 uv) {\n"
+    "    vec2 p = uv * 2.0f - 1.0f;\n"
+    "    return 1.0f - smoothstep(0.96f, 1.0f, length(p));\n"
+    "}\n"
+    "float EngineRoundedBox(vec2 uv, float radius) {\n"
+    "    vec2 p = abs(uv * 2.0f - 1.0f) - (1.0f - radius);\n"
+    "    float d = length(max(p, 0.0f)) - radius;\n"
+    "    return 1.0f - smoothstep(-0.02f, 0.02f, d);\n"
+    "}\n"
+    "float EngineRing(vec2 uv, float radius, float thickness) {\n"
+    "    float d = abs(length(uv * 2.0f - 1.0f) - radius);\n"
+    "    return 1.0f - smoothstep(thickness * 0.5f, thickness * 0.5f + 0.02f, d);\n"
+    "}\n"
+    "vec2 EngineRotate(vec2 p, float deg) {\n"
+    "    float r = radians(deg);\n"
+    "    float c = cos(r), s = sin(r);\n"
+    "    return mat2(c, -s, s, c) * p;\n"
+    "}\n"
+    "float EngineNoise(vec2 p) {\n"
+    "    vec2 i = floor(p), f = fract(p);\n"
+    "    vec2 u = f * f * (3.0 - 2.0 * f);\n"
+    "    float a = fract(sin(dot(i, vec2(127.1, 311.7))) * 43758.5453);\n"
+    "    float b = fract(sin(dot(i + vec2(1, 0), vec2(127.1, 311.7))) * 43758.5453);\n"
+    "    float c = fract(sin(dot(i + vec2(0, 1), vec2(127.1, 311.7))) * 43758.5453);\n"
+    "    float d = fract(sin(dot(i + vec2(1, 1), vec2(127.1, 311.7))) * 43758.5453);\n"
+    "    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);\n"
+    "}\n"
+    "float EngineFbm(vec2 p, int octaves) {\n"
+    "    float v = 0.0, amp = 0.5;\n"
+    "    for (int i = 0; i < octaves; i++) {\n"
+    "        v += amp * EngineNoise(p);\n"
+    "        p = p * 2.03 + vec2(17.0);\n"
+    "        amp *= 0.5;\n"
+    "    }\n"
+    "    return v;\n"
+    "}\n"
+    "vec2 EngineSwirl(vec2 uv, vec2 center, float strength, float radius) {\n"
+    "    vec2 d = uv - center;\n"
+    "    float dist = length(d);\n"
+    "    float k = strength * max(0.0, 1.0 - dist / radius);\n"
+    "    float a = k * 3.14159 * 2.0;\n"
+    "    float c = cos(a), s = sin(a);\n"
+    "    return center + mat2(c, -s, s, c) * d;\n"
+    "}\n"
+    "vec3 EnginePalette(float t, vec3 a, vec3 b, vec3 c, vec3 d) {\n"
+    "    return a + b * cos(6.28318 * (c * t + d));\n"
+    "}\n"
+    "vec3 EngineRainbow(float t) {\n"
+    "    return EnginePalette(t, vec3(0.5), vec3(0.5), vec3(1.0), vec3(0.0, 0.33, 0.67));\n"
+    "}\n"
+    "float EnginePulse(float freq) {\n"
+    "    return 0.5 + 0.5 * sin(u_Time * freq * 6.28318);\n"
+    "}\n";
+
+// Пользователь мог оставить #version у себя — дубликат роняет компиляцию
+static std::string StripVersionLine(const std::string& src) {
+    if (src.rfind("#version", 0) == 0) {
+        size_t nl = src.find('\n');
+        return nl == std::string::npos ? std::string() : src.substr(nl + 1);
+    }
+    return src;
+}
+
+static std::string LoadShaderFile(const std::string& path) {
+    std::ifstream file(path);
+    if (!file.is_open()) return "";
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
+}
+
+Shader* Renderer::GetUserShader(const std::string& basePath) {
+    auto it = m_UserShaderCache.find(basePath);
+    if (it != m_UserShaderCache.end()) return it->second.get();
+    if (m_FailedUserShaders.count(basePath) > 0) return nullptr;
+
+    std::string vert = LoadShaderFile(basePath + ".vert");
+    std::string frag = LoadShaderFile(basePath + ".frag");
+    // Достаточно одного .frag: геометрию отдаст EngineQuadVert из шейдера по умолчанию
+    if (vert.empty() && !frag.empty())
+        vert = "void main() { EngineQuadVert(); }\n";
+    if (vert.empty() || frag.empty()) {
+        std::cerr << "[Shader] missing pair: " << basePath << ".vert/.frag\n";
+        m_FailedUserShaders.insert(basePath);
+        return nullptr;
+    }
+
+    std::string vs = std::string(kUserVertPrelude) + StripVersionLine(vert);
+    std::string fs = std::string(kUserFragPrelude) + StripVersionLine(frag);
+    auto shader = std::make_unique<Shader>(vs.c_str(), fs.c_str());
+    if (!shader->IsValid()) {
+        std::cerr << "[Shader] failed to build user shader: " << basePath << "\n";
+        m_FailedUserShaders.insert(basePath);
+        return nullptr;
+    }
+    Shader* raw = shader.get();
+    m_UserShaderCache.emplace(basePath, std::move(shader));
+    return raw;
+}
+
 // ============ SCENE RENDERING ============
 void Renderer::BeginScene(Camera* camera, int width, int height) {
     m_ScreenW = width;
@@ -130,23 +316,61 @@ void Renderer::RenderEntities(const std::vector<Entity>& entities, Camera* camer
     for (const auto& entity : entities) {
         if (!entity.active) continue;
 
-        glm::mat4 model = glm::mat4(1.0f);
-        model = glm::translate(model, glm::vec3(entity.transform.position, 0.0f));
-        model = glm::rotate(model, glm::radians(entity.transform.rotation), glm::vec3(0.0f, 0.0f, 1.0f));
-        model = glm::scale(model, glm::vec3(entity.transform.scale, 1.0f));
-
+        glm::mat4 model = Transforms::WorldMatrix(entities, entity);
         glm::mat4 mvp = camera->GetViewProjectionMatrix() * model;
 
+        GLuint texture = entity.sprite.texturePath.empty()
+            ? m_WhiteTexture
+            : GetTexture(entity.sprite.texturePath);
+
+        // Пользовательский шейдер рисует quad всегда, независимо от sprite.type
+        if (!entity.sprite.shaderPath.empty()) {
+            Shader* sh = GetUserShader(entity.sprite.shaderPath);
+            if (sh) {
+                sh->Use();
+                sh->SetMat4("u_MVP", mvp);
+                sh->SetMat4("u_Model", model);
+                sh->SetMat4("u_ViewProj", camera->GetViewProjectionMatrix());
+                sh->SetFloat("u_Time", static_cast<float>(glfwGetTime()));
+                sh->SetVec2("u_ScreenSize", glm::vec2(m_ScreenW, m_ScreenH));
+                sh->SetVec3("u_Color", entity.sprite.color);
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, texture != 0 ? texture : m_WhiteTexture);
+                sh->SetInt("u_Texture", 0);
+                glBindVertexArray(m_QuadVAO);
+                glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+                continue;
+            }
+        }
+
         if (entity.sprite.type == SpriteType::Quad) {
-            m_SpriteShader->Use();
-            m_SpriteShader->SetMat4("u_MVP", mvp);
-            m_SpriteShader->SetVec3("u_Color", entity.sprite.color);
+            if (texture != m_WhiteTexture && texture != 0) {
+                m_SpriteTextureShader->Use();
+                m_SpriteTextureShader->SetMat4("u_MVP", mvp);
+                m_SpriteTextureShader->SetVec3("u_Color", entity.sprite.color);
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, texture);
+                m_SpriteTextureShader->SetInt("u_Texture", 0);
+            } else {
+                m_SpriteShader->Use();
+                m_SpriteShader->SetMat4("u_MVP", mvp);
+                m_SpriteShader->SetVec3("u_Color", entity.sprite.color);
+            }
             glBindVertexArray(m_QuadVAO);
             glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
         } else if (entity.sprite.type == SpriteType::Circle) {
-            m_CircleShader->Use();
-            m_CircleShader->SetMat4("u_MVP", mvp);
-            m_CircleShader->SetVec3("u_Color", entity.sprite.color);
+            if (texture != m_WhiteTexture && texture != 0) {
+                m_CircleTextureShader->Use();
+                m_CircleTextureShader->SetMat4("u_MVP", mvp);
+                m_CircleTextureShader->SetVec3("u_Color", entity.sprite.color);
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, texture);
+                m_CircleTextureShader->SetInt("u_Texture", 0);
+            } else {
+                m_CircleShader->Use();
+                m_CircleShader->SetMat4("u_MVP", mvp);
+                m_CircleShader->SetVec3("u_Color", entity.sprite.color);
+            }
             glBindVertexArray(m_QuadVAO);
             glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
         }
@@ -155,36 +379,79 @@ void Renderer::RenderEntities(const std::vector<Entity>& entities, Camera* camer
 }
 
 // ============ GIZMO ============
-void Renderer::RenderGizmo(const Entity* selectedEntity, Camera* camera, int screenW, int screenH) {
+static void AppendSquare(std::vector<float>& lines, const glm::vec2& c, float half) {
+    glm::vec2 p[4] = {
+        c + glm::vec2(-half, -half), c + glm::vec2(half, -half),
+        c + glm::vec2(half, half),   c + glm::vec2(-half, half)
+    };
+    for (int i = 0; i < 4; i++) {
+        const glm::vec2& a = p[i];
+        const glm::vec2& b = p[(i + 1) % 4];
+        lines.insert(lines.end(), { a.x, a.y, b.x, b.y });
+    }
+}
+
+void Renderer::RenderGizmo(const Entity* selectedEntity, const std::vector<Entity>& all,
+                           Camera* camera, int screenW, int screenH, int mode, int activeAxis) {
+    (void)screenW;
     if (!selectedEntity) return;
 
-    glm::vec2 pos = selectedEntity->transform.position;
-    float scale = selectedEntity->transform.scale.x * 0.5f + 30.0f * camera->GetZoom();
+    glm::vec2 pos = Transforms::WorldPosition(all, *selectedEntity);
 
-    // Рендерим оси X (красный) и Y (зелёный)
-    std::vector<float> xAxis = {
-        pos.x, pos.y,
-        pos.x + scale, pos.y
-    };
-    std::vector<float> yAxis = {
-        pos.x, pos.y,
-        pos.x, pos.y + scale
-    };
+    // Постоянный размер на экране: мировая длина = пиксели * (мировых единиц на пиксель)
+    float unitsPerPixel = 1080.0f * camera->GetZoom() / static_cast<float>(screenH > 0 ? screenH : 1);
+    float len = 70.0f * unitsPerPixel;
+    float handle = 6.0f * unitsPerPixel;
 
-    // X axis - red
+    const glm::vec3 colX(1.0f, 0.2f, 0.2f), colY(0.2f, 1.0f, 0.2f),
+                    colAct(1.0f, 0.9f, 0.2f), colWhite(0.9f, 0.9f, 0.9f);
+
     glLineWidth(3.0f);
     m_LineShader->Use();
     m_LineShader->SetMat4("u_ViewProj", camera->GetViewProjectionMatrix());
-    m_LineShader->SetVec3("u_Color", glm::vec3(1.0f, 0.2f, 0.2f));
     glBindBuffer(GL_ARRAY_BUFFER, m_GizmoVBO);
-    glBufferData(GL_ARRAY_BUFFER, xAxis.size() * sizeof(float), xAxis.data(), GL_DYNAMIC_DRAW);
     glBindVertexArray(m_GizmoVAO);
-    glDrawArrays(GL_LINES, 0, 2);
 
-    // Y axis - green
-    m_LineShader->SetVec3("u_Color", glm::vec3(0.2f, 1.0f, 0.2f));
-    glBufferData(GL_ARRAY_BUFFER, yAxis.size() * sizeof(float), yAxis.data(), GL_DYNAMIC_DRAW);
-    glDrawArrays(GL_LINES, 0, 2);
+    auto drawLines = [&](const std::vector<float>& lines, const glm::vec3& color) {
+        m_LineShader->SetVec3("u_Color", color);
+        glBufferData(GL_ARRAY_BUFFER, lines.size() * sizeof(float), lines.data(), GL_DYNAMIC_DRAW);
+        glDrawArrays(GL_LINES, 0, static_cast<int>(lines.size() / 2));
+    };
+
+    if (mode == 0 || mode == 1) {
+        // Оси X/Y (в Rotate — как ориентир)
+        drawLines({ pos.x, pos.y, pos.x + len, pos.y }, activeAxis == 0 ? colAct : colX);
+        drawLines({ pos.x, pos.y, pos.x, pos.y + len }, activeAxis == 1 ? colAct : colY);
+    }
+
+    if (mode == 1) {
+        // Дуга вращения
+        std::vector<float> circle;
+        const int segments = 48;
+        for (int i = 0; i < segments; i++) {
+            float a1 = (float)i / segments * 6.2831853f;
+            float a2 = (float)(i + 1) / segments * 6.2831853f;
+            circle.insert(circle.end(), {
+                pos.x + cosf(a1) * len, pos.y + sinf(a1) * len,
+                pos.x + cosf(a2) * len, pos.y + sinf(a2) * len });
+        }
+        drawLines(circle, activeAxis == 2 ? colAct : colWhite);
+    }
+
+    if (mode == 2) {
+        // Оси + квадраты на концах (X/Y-скейл) и квадрат в центре (равномерный)
+        drawLines({ pos.x, pos.y, pos.x + len, pos.y }, activeAxis == 0 ? colAct : colX);
+        drawLines({ pos.x, pos.y, pos.x, pos.y + len }, activeAxis == 1 ? colAct : colY);
+        std::vector<float> sq;
+        AppendSquare(sq, pos + glm::vec2(len, 0.0f), handle);
+        drawLines(sq, activeAxis == 0 ? colAct : colX);
+        sq.clear();
+        AppendSquare(sq, pos + glm::vec2(0.0f, len), handle);
+        drawLines(sq, activeAxis == 1 ? colAct : colY);
+        sq.clear();
+        AppendSquare(sq, pos, handle);
+        drawLines(sq, activeAxis == 2 ? colAct : colWhite);
+    }
 
     glBindVertexArray(0);
     glLineWidth(1.0f);
@@ -198,5 +465,66 @@ void Renderer::RenderGizmoLines(const std::vector<float>& lines, const glm::vec3
     glBufferData(GL_ARRAY_BUFFER, lines.size() * sizeof(float), lines.data(), GL_DYNAMIC_DRAW);
     glBindVertexArray(m_GizmoVAO);
     glDrawArrays(GL_LINES, 0, static_cast<int>(lines.size() / 2));
+    glBindVertexArray(0);
+}
+
+void Renderer::SetupColliderBuffers() {
+    glGenVertexArrays(1, &m_ColliderVAO);
+    glGenBuffers(1, &m_ColliderVBO);
+    glBindVertexArray(m_ColliderVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, m_ColliderVBO);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glBindVertexArray(0);
+}
+
+void Renderer::RenderColliders(const std::vector<Entity>& entities, Camera* camera) {
+    for (const auto& entity : entities) {
+        if (!entity.active || entity.collider.type == ColliderType::None) continue;
+
+        ColliderPose p = Physics::WorldPose(entities, entity);
+        glm::vec2 center = p.center;
+        std::vector<float> lines;
+        glm::vec3 color = entity.collider.isTrigger ? glm::vec3(0.0f, 1.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+
+        if (entity.collider.type == ColliderType::Box) {
+            glm::vec2 he = entity.collider.size * p.scale;
+            float a = glm::radians(p.angleDeg);
+            glm::vec2 u(std::cos(a), std::sin(a)), v(-std::sin(a), std::cos(a));
+            glm::vec2 corners[4] = {
+                center - u * he.x - v * he.y,
+                center + u * he.x - v * he.y,
+                center + u * he.x + v * he.y,
+                center - u * he.x + v * he.y
+            };
+            for (int i = 0; i < 4; i++) {
+                const glm::vec2& A = corners[i];
+                const glm::vec2& B = corners[(i + 1) % 4];
+                lines.insert(lines.end(), { A.x, A.y, B.x, B.y });
+            }
+        } else if (entity.collider.type == ColliderType::Circle) {
+            // Круг как 16 линий
+            int segments = 16;
+            float radius = entity.collider.radius * std::max(p.scale.x, p.scale.y);
+            for (int i = 0; i < segments; i++) {
+                float angle1 = (float)i / segments * 6.28318f;
+                float angle2 = (float)(i + 1) / segments * 6.28318f;
+                lines.push_back(center.x + cos(angle1) * radius);
+                lines.push_back(center.y + sin(angle1) * radius);
+                lines.push_back(center.x + cos(angle2) * radius);
+                lines.push_back(center.y + sin(angle2) * radius);
+            }
+        }
+
+        if (!lines.empty()) {
+            m_LineShader->Use();
+            m_LineShader->SetMat4("u_ViewProj", camera->GetViewProjectionMatrix());
+            m_LineShader->SetVec3("u_Color", color);
+            glBindBuffer(GL_ARRAY_BUFFER, m_ColliderVBO);
+            glBufferData(GL_ARRAY_BUFFER, lines.size() * sizeof(float), lines.data(), GL_DYNAMIC_DRAW);
+            glBindVertexArray(m_ColliderVAO);
+            glDrawArrays(GL_LINES, 0, static_cast<int>(lines.size() / 2));
+        }
+    }
     glBindVertexArray(0);
 }

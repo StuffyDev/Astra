@@ -1,0 +1,87 @@
+Astra Scene v2
+EntityCount: 11
+ENTITY
+Name: Main Camera
+Pos: 0 0
+Scale: 1 1
+HasCamera: 1
+CameraMain: 1
+CameraZoom: 1.0
+END_ENTITY
+ENTITY
+Name: Black Hole
+Pos: 0 0
+Scale: 900 900
+SpriteType: 1
+Color: 1 1 1
+ShaderPath: assets/shaders/black_hole
+ColliderType: 2
+ColliderRadius: 140
+ColliderTrigger: 1
+END_ENTITY
+ENTITY
+Name: Planet Ember
+Pos: 430 60
+Scale: 52 52
+SpriteType: 2
+Color: 0.9 0.45 0.2
+ScriptPath: assets/scripts/orbit_planet.cpp
+END_ENTITY
+ENTITY
+Name: Moon
+ParentIndex: 2
+Pos: 55 0
+Scale: 16 16
+SpriteType: 2
+Color: 0.85 0.85 0.9
+END_ENTITY
+ENTITY
+Name: Planet Frost
+Pos: -560 -120
+Scale: 36 36
+SpriteType: 2
+Color: 0.35 0.7 0.95
+ScriptPath: assets/scripts/orbit_planet.cpp
+END_ENTITY
+ENTITY
+Name: Star 1
+Pos: 700 420
+Scale: 8 8
+SpriteType: 2
+Color: 1 1 0.9
+END_ENTITY
+ENTITY
+Name: Star 2
+Pos: -760 380
+Scale: 6 6
+SpriteType: 2
+Color: 1 1 0.9
+END_ENTITY
+ENTITY
+Name: Star 3
+Pos: 380 -520
+Scale: 10 10
+SpriteType: 2
+Color: 0.9 0.95 1
+END_ENTITY
+ENTITY
+Name: Star 4
+Pos: -320 560
+Scale: 7 7
+SpriteType: 2
+Color: 1 1 1
+END_ENTITY
+ENTITY
+Name: Star 5
+Pos: 880 -180
+Scale: 6 6
+SpriteType: 2
+Color: 0.95 0.9 1
+END_ENTITY
+ENTITY
+Name: Star 6
+Pos: -880 -420
+Scale: 9 9
+SpriteType: 2
+Color: 1 0.95 0.85
+END_ENTITY
