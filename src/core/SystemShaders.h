@@ -17,9 +17,8 @@ inline const char* LineFrag = R"(
 #version 460 core
 out vec4 FragColor;
 uniform vec3 u_Color;
-uniform float u_Alpha;
 void main() {
-    FragColor = vec4(u_Color, u_Alpha);
+    FragColor = vec4(u_Color, 1.0);
 }
 )";
 

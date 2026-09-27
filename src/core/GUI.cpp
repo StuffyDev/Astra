@@ -132,6 +132,11 @@ static uint64_t ComputeSignatureFor(const std::vector<Entity>& ents) {
         FnvStr(h, e.name);
         FnvStr(h, e.prefabSource);
         FnvUpdate(h, &e.transform, sizeof(e.transform));
+        FnvUpdate(h, &e.hasRigidbody, sizeof(e.hasRigidbody));
+        FnvUpdate(h, &e.hasCollider, sizeof(e.hasCollider));
+        FnvUpdate(h, &e.hasAudio, sizeof(e.hasAudio));
+        FnvUpdate(h, &e.hasScript, sizeof(e.hasScript));
+        FnvUpdate(h, &e.hasParticles, sizeof(e.hasParticles));
         FnvUpdate(h, &e.sprite.type, sizeof(e.sprite.type));
         FnvUpdate(h, &e.sprite.color, sizeof(e.sprite.color));
         FnvStr(h, e.sprite.texturePath);
@@ -881,8 +886,8 @@ void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
         ImGui::DockBuilderSetNodeSize(dockspaceID, viewport->Size);
 
         ImGuiID dock_main = dockspaceID;
-        ImGuiID dock_left = ImGui::DockBuilderSplitNode(dock_main, ImGuiDir_Left, 0.20f, nullptr, &dock_main);
-        ImGuiID dock_right = ImGui::DockBuilderSplitNode(dock_main, ImGuiDir_Right, 0.25f, nullptr, &dock_main);
+        ImGuiID dock_left = ImGui::DockBuilderSplitNode(dock_main, ImGuiDir_Left, 0.17f, nullptr, &dock_main);
+        ImGuiID dock_right = ImGui::DockBuilderSplitNode(dock_main, ImGuiDir_Right, 0.20f, nullptr, &dock_main);
         ImGuiID dock_bottom = ImGui::DockBuilderSplitNode(dock_main, ImGuiDir_Down, 0.25f, nullptr, &dock_main);
 
         ImGui::DockBuilderDockWindow("Hierarchy", dock_left);
@@ -1377,14 +1382,30 @@ void GUI::RenderInspector(EditorContext& ctx) {
                      "%s", selected->sprite.texturePath.c_str());
         }
         ImGui::SameLine();
-        if (ImGui::Button("Clear")) {
+        if (ImGui::Button("Clear##tex")) {
             selected->sprite.texturePath.clear();
             m_TexturePathBuffer[0] = '\0';
         }
 
+        auto CompHeader = [&](const char* label, bool& present) {
+            ImGui::Separator();
+            ImGui::Text("%s", label);
+            ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 24.0f);
+            if (ImGui::SmallButton(("x##" + std::string(label)).c_str())) present = false;
+        };
+
         // --- Спрайт-анимация ---
+        bool animPresent = selected->animation.active || !selected->animation.texturePath.empty()
+                        || !selected->animation.clips.empty();
+        if (animPresent) {
         ImGui::Separator();
         ImGui::Text("Animation (sprite sheet)");
+        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 24.0f);
+        if (ImGui::SmallButton("x##anim")) {
+            selected->animation.active = false;
+            selected->animation.texturePath.clear();
+            selected->animation.clips.clear();
+        }
         ImGui::Checkbox("Active", &selected->animation.active);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("В Edit кадры крутятся как превью; в Play — по Play On Awake.");
@@ -1394,10 +1415,6 @@ void GUI::RenderInspector(EditorContext& ctx) {
         } else if (!ImGui::IsItemActive() && selected->animation.texturePath != m_AnimTextureBuffer) {
             snprintf(m_AnimTextureBuffer, sizeof(m_AnimTextureBuffer),
                      "%s", selected->animation.texturePath.c_str());
-            snprintf(m_TilemapTexBuffer, sizeof(m_TilemapTexBuffer),
-                     "%s", selected->tilemap.texturePath.c_str());
-            snprintf(m_ParticleTexBuffer, sizeof(m_ParticleTexBuffer),
-                     "%s", selected->emitter.texturePath.c_str());
         }
         ImGui::SameLine();
         if (ImGui::Button("Use Sprite##animtex")) {
@@ -1414,6 +1431,7 @@ void GUI::RenderInspector(EditorContext& ctx) {
         int curFrame = selected->animation.active
             ? static_cast<int>(static_cast<long>(selected->animTime * selected->animation.fps) % totalFrames) : 0;
         ImGui::TextDisabled("Кадр %d/%d (сетка слева→вправо, сверху вниз)", curFrame + 1, totalFrames);
+        }
 
         // --- Material: живые параметры шейдера ---
         ImGui::Separator();
@@ -1477,19 +1495,15 @@ void GUI::RenderInspector(EditorContext& ctx) {
                     clips.push_back(c);
                 }
                 ImGui::SameLine();
-                ImGui::TextDisabled("PlayClip(e,\"run\) из скриптов");
+                ImGui::TextDisabled("PlayClip(e, \"run\") из скриптов");
             }
             ImGui::Unindent();
         }
 
         // --- Tilemap ---
-        ImGui::Separator();
-        ImGui::Text("Tilemap");
-        if (ImGui::Checkbox("Enable", &selected->hasTilemap)) {
-            Tilemap& tm = selected->tilemap;
-            tm.cells.assign((size_t)std::max(tm.width, 1) * std::max(tm.height, 1), -1);
-        }
         if (selected->hasTilemap) {
+        CompHeader("Tilemap", selected->hasTilemap);
+        {
             Tilemap& tm = selected->tilemap;
             ImGui::InputText("Atlas Path", m_TilemapTexBuffer, sizeof(m_TilemapTexBuffer));
             if (ImGui::IsItemDeactivatedAfterEdit()) tm.texturePath = m_TilemapTexBuffer;
@@ -1514,7 +1528,7 @@ void GUI::RenderInspector(EditorContext& ctx) {
             if (tm.width != oldW || tm.height != oldH) tm.cells.assign((size_t)tm.width * tm.height, -1);
             if ((int)tm.cells.size() < tm.width * tm.height) tm.cells.resize((size_t)tm.width * tm.height, -1);
             ImGui::ColorEdit4("Tint", &tm.color.r);
-            ImGui::DragInt("Sorting Order", &tm.sortingOrder, 1.0f);
+            ImGui::DragInt("Sorting Order##tile", &tm.sortingOrder, 1.0f);
             ImGui::Text("Current tile: %d   ", m_CurrentTile);
             ImGui::SameLine();
             if (ImGui::Button("Pick Tile")) ImGui::OpenPopup("TilePicker");
@@ -1560,11 +1574,12 @@ void GUI::RenderInspector(EditorContext& ctx) {
                 ImGui::EndPopup();
             }
         }
+        }
 
         // --- Particle Emitter ---
-        ImGui::Separator();
-        ImGui::Text("Particle Emitter");
-        if (ImGui::Checkbox("Active", &selected->emitter.active)) {}
+        if (selected->hasParticles) {
+        CompHeader("Particle Emitter", selected->hasParticles);
+        ImGui::Checkbox("Active##part", &selected->emitter.active);
         ParticleEmitter& em = selected->emitter;
         ImGui::InputText("Particle Tex", m_ParticleTexBuffer, sizeof(m_ParticleTexBuffer));
         if (ImGui::IsItemDeactivatedAfterEdit()) em.texturePath = m_ParticleTexBuffer;
@@ -1581,9 +1596,9 @@ void GUI::RenderInspector(EditorContext& ctx) {
         ImGui::DragFloat2("Size min/max", &em.sizeMin, 0.5f, 1.0f, 512.0f);
         ImGui::ColorEdit4("Color Start", &em.colorStart.r);
         ImGui::ColorEdit4("Color End", &em.colorEnd.r);
-        ImGui::Checkbox("Loop", &em.loop);
+        ImGui::Checkbox("Loop##part", &em.loop);
         ImGui::SameLine();
-        ImGui::Checkbox("Play On Awake", &em.playOnAwake);
+        ImGui::Checkbox("Play On Awake##part", &em.playOnAwake);
         if (ImGui::Button("Burst")) {
             glm::vec2 origin = Transforms::WorldPosition(sceneManager->GetEntities(), *selected);
             int n = std::min(em.maxCount / 2 + 1, em.maxCount - (int)selected->particles.size());
@@ -1600,6 +1615,7 @@ void GUI::RenderInspector(EditorContext& ctx) {
         }
         ImGui::SameLine();
         ImGui::TextDisabled("%zu live", selected->particles.size());
+        }
 
         // --- Пользовательский шейдер ---
         ImGui::Text("Custom Shader");
@@ -1633,16 +1649,17 @@ void GUI::RenderInspector(EditorContext& ctx) {
         }
         ImGui::TextDisabled("API: достаточно только .frag (вертекс даёт движок).\nХелперы: v_UV, EngineUV, EngineCircleMask, EngineRoundedBox, EngineRing,\nEngineRotate, EngineNoise, EngineFbm, EngineSwirl, EnginePalette, EngineRainbow,\nEnginePulse, EngineGrid, EngineVignette");
 
-        ImGui::Separator();
-        ImGui::Text("Rigidbody");
+        if (selected->hasRigidbody) {
+        CompHeader("Rigidbody", selected->hasRigidbody);
         ImGui::Checkbox("Is Kinematic", &selected->rigidbody.isKinematic);
         ImGui::DragFloat2("Velocity", &selected->rigidbody.velocity.x, 1.0f);
         ImGui::DragFloat("Mass", &selected->rigidbody.mass, 0.1f, 0.01f, 1000.0f);
         ImGui::DragFloat("Drag", &selected->rigidbody.drag, 0.01f, 0.0f, 1.0f);
         ImGui::Checkbox("Use Gravity", &selected->rigidbody.useGravity);
+        }
 
-        ImGui::Separator();
-        ImGui::Text("Collider");
+        if (selected->hasCollider) {
+        CompHeader("Collider", selected->hasCollider);
         const char* colliderTypes[] = { "None", "Box", "Circle" };
         int ct = static_cast<int>(selected->collider.type);
         if (ImGui::Combo("Collider Type", &ct, colliderTypes, 3)) {
@@ -1654,20 +1671,19 @@ void GUI::RenderInspector(EditorContext& ctx) {
         } else if (selected->collider.type == ColliderType::Circle) {
             ImGui::DragFloat("Radius", &selected->collider.radius, 1.0f, 0.1f, 10000.0f);
         }
+        }
 
         if (selected->hasCamera) {
-            ImGui::Separator();
-            ImGui::Text("Camera");
+            CompHeader("Camera", selected->hasCamera);
             ImGui::Checkbox("Main Camera", &selected->camera.mainCamera);
             ImGui::DragFloat("Zoom", &selected->camera.zoom, 0.01f, 0.1f, 20.0f);
             ImGui::DragFloat2("Viewport Offset", &selected->camera.offset.x, 1.0f);
         }
 
         // --- UI Element ---
-        ImGui::Separator();
-        ImGui::Text("UI Element");
-        ImGui::Checkbox("Has UI", &selected->hasUI);
         if (selected->hasUI) {
+        CompHeader("UI Element", selected->hasUI);
+        {
             const char* kinds[] = { "Button", "Text", "Slider", "Checkbox", "Progress Bar" };
             int k = static_cast<int>(selected->ui.kind);
             if (ImGui::Combo("Kind", &k, kinds, 5)) selected->ui.kind = static_cast<UIKind>(k);
@@ -1700,10 +1716,11 @@ void GUI::RenderInspector(EditorContext& ctx) {
             ImGui::TextDisabled("Position/Size — мировые единицы (совпадают с gizmo в Scene);\n"
                                 "в Game-view экранные пиксели = масштаб камеры Game-view.");
         }
+        }
 
         // --- Audio Source ---
-        ImGui::Separator();
-        ImGui::Text("Audio Source");
+        if (selected->hasAudio) {
+        CompHeader("Audio Source", selected->hasAudio);
         ImGui::InputText("Clip Path", m_AudioPathBuffer, sizeof(m_AudioPathBuffer));
         if (ImGui::IsItemDeactivatedAfterEdit()) {
             selected->audio.path = m_AudioPathBuffer;
@@ -1712,17 +1729,19 @@ void GUI::RenderInspector(EditorContext& ctx) {
         }
         ImGui::DragFloat("Volume", &selected->audio.volume, 0.01f, 0.0f, 2.0f);
         ImGui::DragFloat("Pitch", &selected->audio.pitch, 0.01f, 0.1f, 3.0f);
-        ImGui::Checkbox("Loop", &selected->audio.loop);
-        ImGui::Checkbox("Play On Awake", &selected->audio.playOnAwake);
+        ImGui::Checkbox("Loop##audio", &selected->audio.loop);
+        ImGui::Checkbox("Play On Awake##audio", &selected->audio.playOnAwake);
         if (!selected->audio.path.empty()) {
             if (ImGui::Button("Preview")) Audio::PlayOneShot(selected->audio.path, selected->audio.volume, selected->audio.pitch);
             ImGui::SameLine();
             if (ImGui::Button("Stop Preview")) Audio::StopAll();
         }
+        }
 
         // --- Script ---
-        ImGui::Separator();
-        ImGui::Text("Script (C++)");
+        if (selected->hasScript || !selected->scriptPath.empty()) {
+        if (selected->hasScript) CompHeader("Script (C++)", selected->hasScript);
+        else { ImGui::Separator(); ImGui::Text("Script (C++)"); }
         std::vector<std::string> scriptPaths;
         if (fs::is_directory("assets/scripts", ec)) {
             for (const auto& entry : fs::directory_iterator("assets/scripts", ec)) {
@@ -1769,6 +1788,36 @@ void GUI::RenderInspector(EditorContext& ctx) {
                 }
                 ImGui::TextDisabled("Из DefineVar(\"имя\", дефолт) в скрипте; хранятся в сцене.");
             }
+        }
+        }
+
+        // --- Add Component (как в Unity) ---
+        ImGui::Separator();
+        if (ImGui::Button("+ Add Component", ImVec2(160, 0))) ImGui::OpenPopup("AddComponentPopup");
+        if (ImGui::BeginPopup("AddComponentPopup")) {
+            m_PopupOpen = true;
+            if (!selected->hasRigidbody && ImGui::MenuItem("Rigidbody")) selected->hasRigidbody = true;
+            if (!selected->hasCollider && ImGui::MenuItem("Collider")) {
+                selected->hasCollider = true;
+                if (selected->collider.type == ColliderType::None)
+                    selected->collider.type = (selected->sprite.type == SpriteType::Circle) ? ColliderType::Circle : ColliderType::Box;
+            }
+            if (!selected->hasAudio && ImGui::MenuItem("Audio Source")) selected->hasAudio = true;
+            if (!selected->hasScript && selected->scriptPath.empty() && ImGui::MenuItem("Script (C++)")) selected->hasScript = true;
+            if (!selected->hasParticles && ImGui::MenuItem("Particle Emitter")) selected->hasParticles = true;
+            if (!selected->hasTilemap && ImGui::MenuItem("Tilemap")) {
+                selected->hasTilemap = true;
+                selected->tilemap.cells.assign((size_t)std::max(selected->tilemap.width, 1) *
+                                               std::max(selected->tilemap.height, 1), -1);
+            }
+            if (!selected->hasUI && ImGui::MenuItem("UI Element")) selected->hasUI = true;
+            if (!selected->hasCamera && ImGui::MenuItem("Camera")) selected->hasCamera = true;
+            if (!animPresent && ImGui::MenuItem("Sprite Animation")) {
+                selected->animation.active = true;
+                selected->animation.texturePath = selected->sprite.texturePath;
+                snprintf(m_AnimTextureBuffer, sizeof(m_AnimTextureBuffer), "%s", selected->animation.texturePath.c_str());
+            }
+            ImGui::EndPopup();
         }
     } else {
         ImGui::TextDisabled("Select an object to inspect");
@@ -2773,10 +2822,12 @@ void GUI::RenderNewEntityDialog(SceneManager* sceneManager) {
             e.transform.scale = glm::vec2(100.0f, 100.0f);
             if (m_NewEntityType == 1) {
                 e.sprite.type = SpriteType::Quad;
+                e.hasCollider = true;
                 e.collider.type = ColliderType::Box;
                 e.collider.size = glm::vec2(50.0f, 50.0f);
             } else {
                 e.sprite.type = SpriteType::Circle;
+                e.hasCollider = true;
                 e.collider.type = ColliderType::Circle;
                 e.collider.radius = 50.0f;
             }

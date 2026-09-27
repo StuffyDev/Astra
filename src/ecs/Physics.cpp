@@ -187,6 +187,15 @@ static float BodyWeight(const Entity& e) {
 }
 
 void Physics::Step(std::vector<Entity>& entities, float fixedDeltaTime) {
+    // Компоненты, которых «нет», не должны влиять на симуляцию
+    for (auto& e : entities) {
+        if (!e.hasCollider) e.collider.type = ColliderType::None;
+        if (!e.hasRigidbody) {
+            e.rigidbody.velocity = glm::vec2(0.0f);
+            e.rigidbody.useGravity = false;
+            e.rigidbody.isKinematic = true;
+        }
+    }
     float dt = fixedDeltaTime;
     s_Events.clear();
 

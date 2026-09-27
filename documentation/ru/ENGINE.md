@@ -90,6 +90,12 @@ Import File...).
 
 GameObject ▸ Create Empty/Quad/Circle/Camera/UI — быстрые пресеты.
 
+**Компоненты добавляются, как в Unity**: у новой сущности только Transform+Sprite;
+Rigidbody/Collider/Audio/Script/Particle Emitter/Tilemap/UI/Camera/Animation добавляются
+кнопкой **+ Add Component** внизу инспектора, удаляются крестиком **x** в заголовке секции.
+Файлы старых сцен (до v0.10) грузятся как раньше — там компоненты «включены».
+Также у Inspector и Hierarchy пропорции теперь компактнее (20%/17%).
+
 ## 5. Сцены
 
 - Формат текста: `Astra Scene v2` (одна сущность = блок `ENTITY ... END_ENTITY`).

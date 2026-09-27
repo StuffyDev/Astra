@@ -44,6 +44,11 @@ void WriteEntity(std::ostream& file, const Entity& e, const std::unordered_map<u
         auto it = indexOf.find(e.parentId);
         return it != indexOf.end() ? static_cast<int>(it->second) : -1;
     }() << "\n";
+    file << "HasRigidbody: " << (e.hasRigidbody ? 1 : 0) << "\n";
+    file << "HasCollider: " << (e.hasCollider ? 1 : 0) << "\n";
+    file << "HasAudio: " << (e.hasAudio ? 1 : 0) << "\n";
+    file << "HasScript: " << (e.hasScript ? 1 : 0) << "\n";
+    file << "HasParticles: " << (e.hasParticles ? 1 : 0) << "\n";
     file << "RigidbodyKinematic: " << (e.rigidbody.isKinematic ? 1 : 0) << "\n";
     file << "RigidbodyVelocity: " << e.rigidbody.velocity.x << " " << e.rigidbody.velocity.y << "\n";
     file << "RigidbodyMass: " << e.rigidbody.mass << "\n";
@@ -182,10 +187,13 @@ bool SceneSerializer::LoadEntities(const std::string& path, std::vector<Entity>&
         if (line == "ENTITY") {
             inEntity = true;
             current = Entity();
+            // Файлы до v0.10 не имели флагов: считаем компоненты включёнными (legacy)
+            current.hasRigidbody = current.hasCollider = current.hasAudio = current.hasParticles = true;
             currentParent = -1;
         } else if (line == "END_ENTITY") {
             if (inEntity) {
                 parentIndices.push_back(currentParent);
+                if (current.hasScript == false && !current.scriptPath.empty()) current.hasScript = true;
                 out.push_back(current);
                 inEntity = false;
             }
@@ -223,6 +231,11 @@ bool SceneSerializer::LoadEntities(const std::string& path, std::vector<Entity>&
                 }
             }
             else if (key == "ParentIndex:") { iss >> currentParent; }
+            else if (key == "HasRigidbody:") { int v; iss >> v; current.hasRigidbody = v; }
+            else if (key == "HasCollider:") { int v; iss >> v; current.hasCollider = v; }
+            else if (key == "HasAudio:") { int v; iss >> v; current.hasAudio = v; }
+            else if (key == "HasScript:") { int v; iss >> v; current.hasScript = v; }
+            else if (key == "HasParticles:") { int v; iss >> v; current.hasParticles = v; }
             else if (key == "RigidbodyKinematic:") { int v; iss >> v; current.rigidbody.isKinematic = v; }
             else if (key == "RigidbodyVelocity:") { iss >> current.rigidbody.velocity.x >> current.rigidbody.velocity.y; }
             else if (key == "RigidbodyMass:") { iss >> current.rigidbody.mass; }

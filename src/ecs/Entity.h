@@ -17,15 +17,20 @@ struct Entity {
     Sprite sprite;
     SpriteAnimation animation;
     float animTime = 0.0f; // runtime-состояние, в файл не пишется
+    bool hasRigidbody = false; // компоненты добавляются/убираются, как в Unity
+    bool hasCollider = false;
     Rigidbody rigidbody;
     Collider collider;
     bool hasCamera = false;
     CameraComponent camera;
     bool hasUI = false;
     UIComponent ui;
+    bool hasAudio = false;
     AudioSource audio;
+    bool hasScript = false;
     bool hasTilemap = false;
     Tilemap tilemap;
+    bool hasParticles = false;
     ParticleEmitter emitter;
     std::vector<Particle> particles; // runtime-состояние частиц
     bool active = true;
