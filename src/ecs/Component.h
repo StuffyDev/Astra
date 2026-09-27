@@ -186,9 +186,10 @@ struct UIComponent {
 
 // 3D-меш сущности: примитив или OBJ. Действует, когда Entity.is3D.
 struct MeshComponent {
-    int type = 0;              // 0 Cube, 1 Plane, 2 Sphere, 3 OBJ
-    std::string meshPath;      // для type==3: assets/models/*.obj
-    std::string texturePath;   // пусто — однотонный
+    int type = 0;                    // 0 Cube, 1 Plane, 2 Sphere, 3 OBJ, 4 glTF
+    std::string meshPath;            // для type 3/4: assets/models/*.obj|.glb|.gltf
+    std::string texturePath;         // пусто — однотонный
+    std::string shaderPath;          // базовый путь .vert/.frag; пусто — системный шейдер
     glm::vec3 color = glm::vec3(1.0f);
 };
 

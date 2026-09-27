@@ -14,12 +14,14 @@ Scale3: 1 1 1
 MeshType: 0
 MeshPath:
 MeshTex: 
+MeshShader: 
 MeshColor: 1 1 1
 SpriteType: 0
 HasRigidbody: 0
 HasCollider: 0
 HasAudio: 0
 HasScript: 0
+ScriptPath: 
 HasParticles: 0
 HasTilemap: 0
 HasUI: 0
@@ -45,12 +47,14 @@ Scale3: 3000 1 3000
 MeshType: 1
 MeshPath:
 MeshTex: 
+MeshShader: 
 MeshColor: 0.55 0.57 0.6
 SpriteType: 0
 HasRigidbody: 0
 HasCollider: 0
 HasAudio: 0
 HasScript: 0
+ScriptPath: 
 HasParticles: 0
 HasTilemap: 0
 HasUI: 0
@@ -65,7 +69,7 @@ Col3Radius: 0.5
 END_ENTITY
 
 ENTITY
-Name: Cube Falling
+Name: Cube Bouncing
 Active: 1
 Pos: 0 0
 Rot: 0
@@ -77,12 +81,14 @@ Scale3: 120 120 120
 MeshType: 0
 MeshPath:
 MeshTex: 
+MeshShader: 
 MeshColor: 0.9 0.28 0.24
 SpriteType: 0
 HasRigidbody: 0
 HasCollider: 0
 HasAudio: 0
-HasScript: 0
+HasScript: 1
+ScriptPath: assets/scripts/bounce3d.cpp
 HasParticles: 0
 HasTilemap: 0
 HasUI: 0
@@ -99,6 +105,8 @@ Col3Trigger: 0
 Col3Center: 0 0 0
 Col3Half: 0.5 0.5 0.5
 Col3Radius: 0.5
+ScriptVar: kick=900
+ScriptVar: probe=70
 END_ENTITY
 
 ENTITY
@@ -114,12 +122,14 @@ Scale3: 140 300 140
 MeshType: 0
 MeshPath:
 MeshTex: 
+MeshShader: 
 MeshColor: 0.3 0.55 0.85
 SpriteType: 0
 HasRigidbody: 0
 HasCollider: 0
 HasAudio: 0
 HasScript: 0
+ScriptPath: 
 HasParticles: 0
 HasTilemap: 0
 HasUI: 0
@@ -134,7 +144,7 @@ Col3Radius: 0.5
 END_ENTITY
 
 ENTITY
-Name: Cube Tilted
+Name: Cube Metal
 Active: 1
 Pos: 0 0
 Rot: 0
@@ -146,12 +156,14 @@ Scale3: 150 150 150
 MeshType: 0
 MeshPath:
 MeshTex: 
+MeshShader: assets/shaders/metal3d
 MeshColor: 0.95 0.78 0.35
 SpriteType: 0
 HasRigidbody: 0
 HasCollider: 0
 HasAudio: 0
 HasScript: 0
+ScriptPath: 
 HasParticles: 0
 HasTilemap: 0
 HasUI: 0
@@ -183,12 +195,14 @@ Scale3: 170 170 170
 MeshType: 2
 MeshPath:
 MeshTex: 
+MeshShader: 
 MeshColor: 0.42 0.78 0.52
 SpriteType: 0
 HasRigidbody: 0
 HasCollider: 0
 HasAudio: 0
 HasScript: 0
+ScriptPath: 
 HasParticles: 0
 HasTilemap: 0
 HasUI: 0
@@ -220,12 +234,14 @@ Scale3: 200 200 200
 MeshType: 0
 MeshPath:
 MeshTex: 
+MeshShader: 
 MeshColor: 0.35 0.85 0.95
 SpriteType: 0
 HasRigidbody: 0
 HasCollider: 0
 HasAudio: 0
 HasScript: 0
+ScriptPath: 
 HasParticles: 0
 HasTilemap: 0
 HasUI: 0

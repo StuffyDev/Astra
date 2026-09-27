@@ -233,7 +233,9 @@ static uint64_t ComputeSignatureFor(const std::vector<Entity>& ents) {
             FnvStr(h, e.mesh.meshPath);
             FnvStr(h, e.mesh.texturePath);
             FnvUpdate(h, &e.mesh.color, sizeof(e.mesh.color));
+            FnvStr(h, e.mesh.shaderPath);
         }
+        if (e.hasCollider3D) FnvUpdate(h, &e.col3, sizeof(e.col3));
         FnvUpdate(h, &e.hasRigidbody, sizeof(e.hasRigidbody));
         FnvUpdate(h, &e.hasCollider, sizeof(e.hasCollider));
         FnvUpdate(h, &e.hasAudio, sizeof(e.hasAudio));
@@ -1731,6 +1733,14 @@ void GUI::RenderInspector(EditorContext& ctx) {
             }
             ImGui::InputText("Mesh Texture", &selected->mesh.texturePath);
             ImGui::ColorEdit3("Mesh Color", &selected->mesh.color.x);
+            ImGui::InputText("Mesh Shader", &selected->mesh.shaderPath);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Базовый путь .vert/.frag (например assets/shaders/metal).\n"
+                                  "Пусто — системный шейдер движка. См. SHADER_API.md ▸ 3D.");
+            ImGui::SameLine();
+            if (ImGui::Button("Clear##meshshader")) selected->mesh.shaderPath.clear();
+            if (ImGui::Button("Reload##meshshader") && !selected->mesh.shaderPath.empty())
+                ctx.renderer->ClearProjectCaches();   // пересобирает кэш шейдеров и текстур
         } else {
             ImGui::DragFloat2("Position", &selected->transform.position.x, 1.0f);
             ImGui::DragFloat("Rotation", &selected->transform.rotation, 1.0f);
@@ -3696,7 +3706,7 @@ static void CollectSceneDeps(const std::string& scenePath, std::set<std::string>
     if (text.empty()) return;
     static const char* keys[] = { "TexturePath: ", "ShaderPath: ", "AnimTexture: ", "SoundPath: ",
                                   "PrefabSource: ", "TilemapTex: ", "ParticleTex: ",
-                                  "MeshPath: ", "MeshTex: " };
+                                  "MeshPath: ", "MeshTex: ", "MeshShader: " };
     std::istringstream ss(text);
     std::string line;
     while (std::getline(ss, line)) {

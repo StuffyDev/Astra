@@ -158,6 +158,69 @@ SCRIPT_ENTRY(SpaceBody)
   путь → `OnDestroy + delete`. Ошибки компиляции не валят игру — видны в Console.
 - В собранной игре скрипты не компилируются: используются готовые `.so` из `build-scripts/`.
 
+## 8. 3D: поза, физика, лучи
+
+В 3D-сцене сущность живёт в `pos3 / rot3 (градусы, X→Y→Z) / scale3` — методы ниже работают
+с ней. Мировые единицы те же, что в 2D: 100 единиц = 1 метр (настраивается в
+Settings ▸ Physics ▸ Pixels per meter), поэтому `Gravity3D()` по умолчанию ≈ `(0, -981, 0)`.
+
+Методы `Script` (protected, у наследника):
+
+| Метод | Что делает |
+|---|---|
+| `bool Is3D() const` | трёхосевая ли сущность (иначе 3D-методы двигают пустоту) |
+| `glm::vec3 Position3D() const` | мировая позиция с учётом parent-цепочки |
+| `void SetPosition3D(const glm::vec3&)` | поставить в мир (пересчитывает в локальную) |
+| `void Translate3D(const glm::vec3&)` | сдвиг `pos3` (локально, без родителя) |
+| `glm::vec3 Rotation3D() const` / `SetRotation3D(const glm::vec3&)` | углы в градусах |
+| `void SetScale3D(const glm::vec3&)` | масштаб (заодно синхронизирует 2D `scale`) |
+| `glm::vec3 Velocity3D() const` / `SetVelocity3D(const glm::vec3&)` | скорость Rigidbody (3D); сеттер создаёт компонент, если его нет |
+| `void AddForce3D(const glm::vec3&)` | импульс: `velocity += impulse / mass` |
+| `void SetGravityEnabled3D(bool)` | включить/выключить гравитацию (тоже создаёт Rigidbody) |
+| `void LookAt3D(const glm::vec3&)` | развернуть объект `-Z` на цель (как `transform.LookAt` в Unity) |
+
+Глобальные функции:
+
+```cpp
+struct RayHit3D { uint32_t entityId; std::string name; glm::vec3 point, normal; float distance; };
+bool Raycast3D(const glm::vec3& origin, const glm::vec3& dir, float maxDist, RayHit3D& out);
+int  RaycastAll3D(const glm::vec3& origin, const glm::vec3& dir, float maxDist, RayHit3D* out, int max);
+glm::vec3 Gravity3D();
+uint32_t InstantiatePrefab3D(const std::string& prefabPath, const glm::vec3& pos);
+inline void AddForce3D(Entity* e, const glm::vec3& impulse);   // для чужих сущностей
+inline void SetVelocity3D(Entity* e, const glm::vec3& v);
+inline glm::vec3 MoveTowards3D(const glm::vec3& from, const glm::vec3& to, float maxDelta);
+```
+
+`Raycast3D` идёт по 3D-сущностям: у кого есть **Collider (3D)** — берётся его габарит (с учётом
+масштаба и поворота), у кого нет — коробка по межу (`0.5 * scale3`). Возвращает ближайшую цель,
+нормаль по грани входа и дистанцию; `dir` нормализовывать не обязательно.
+
+Физика: `Rigidbody (3D)` и `Collider (3D)` добавляются в инспекторе (`+ Add Component`,
+только у 3D-сущностей) или скриптом (`SetGravityEnabled3D`, `AddForce3D`). События общие с 2D:
+`OnTriggerEnter/Exit(otherId)`, `OnCollisionEnter(otherId)` — `otherId` можно вернуть в `Entity*`
+через `Scene()` или `FindById`.
+
+Пример — прыгающий куб (`assets/scripts/bounce3d.cpp`):
+
+```cpp
+class Bounce3D : public Script {
+public:
+    void Start() override {
+        DefineVar("kick", 900.0f);
+        SetGravityEnabled3D(true);
+    }
+    void Update(float dt) override {
+        RayHit3D hit;
+        bool grounded = Raycast3D(Position3D(), glm::vec3(0, -1, 0), 70.0f, hit);
+        if (grounded && Velocity3D().y <= 1.0f)
+            SetVelocity3D(glm::vec3(Velocity3D().x, GetVar("kick"), Velocity3D().z));
+        glm::vec3 r = Rotation3D(); r.y += dt * 20.0f; SetRotation3D(r);
+    }
+};
+SCRIPT_ENTRY(Bounce3D)
+```
+
 ## 7. Частые грабли
 
 - `Owner()` может стать `nullptr` (сущность удалили) — проверяйте в каждом методе.
@@ -165,3 +228,6 @@ SCRIPT_ENTRY(SpaceBody)
 - Смена `scriptPath` или `.cpp` на лету пересоздаёт инстанс (`Start()` заново).
 - Физика дочерних Rigidbody не симулируется — их двигает родитель.
 - `timeScale=0` + `UnscaledDelta()` — единственный способ что-то делать на паузе.
+- 3D-сущность в 2D-сцене не видна в Scene-вью (и наоборот): режим — свойство сцены, `View ▸ 3D Scene`.
+- `Translate3D` не учитывает поворот родителя — для «локального» движения пересчитывай сам.
+- `Raycast3D` без `Collider (3D)` использует габарит меша: для повёрнутой модели он шире реального.

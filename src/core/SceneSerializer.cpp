@@ -28,6 +28,7 @@ void WriteEntity(std::ostream& file, const Entity& e, const std::unordered_map<u
     file << "MeshPath: " << e.mesh.meshPath << "\n";
     file << "MeshTex: " << e.mesh.texturePath << "\n";
     file << "MeshColor: " << e.mesh.color.r << " " << e.mesh.color.g << " " << e.mesh.color.b << "\n";
+    file << "MeshShader: " << e.mesh.shaderPath << "\n";
     file << "HasRigidbody3D: " << (e.hasRigidbody3D ? 1 : 0) << "\n";
     file << "Rb3Kinematic: " << (e.rb3.isKinematic ? 1 : 0) << "\n";
     file << "Rb3Velocity: " << e.rb3.velocity.x << " " << e.rb3.velocity.y << " " << e.rb3.velocity.z << "\n";
@@ -280,6 +281,7 @@ bool SceneSerializer::LoadEntities(const std::string& path, std::vector<Entity>&
             else if (key == "MeshPath:") { std::getline(iss, current.mesh.meshPath); current.mesh.meshPath = TrimLead(current.mesh.meshPath); }
             else if (key == "MeshTex:") { std::getline(iss, current.mesh.texturePath); current.mesh.texturePath = TrimLead(current.mesh.texturePath); }
             else if (key == "MeshColor:") { iss >> current.mesh.color.r >> current.mesh.color.g >> current.mesh.color.b; }
+            else if (key == "MeshShader:") { std::getline(iss, current.mesh.shaderPath); current.mesh.shaderPath = TrimLead(current.mesh.shaderPath); }
             else if (key == "HasRigidbody3D:") { int v; iss >> v; current.hasRigidbody3D = v; }
             else if (key == "Rb3Kinematic:") { int v; iss >> v; current.rb3.isKinematic = v; }
             else if (key == "Rb3Velocity:") { iss >> current.rb3.velocity.x >> current.rb3.velocity.y >> current.rb3.velocity.z; }

@@ -749,36 +749,58 @@ void Renderer::RenderEntities3D(const std::vector<Entity>& entities, Camera* cam
         RenderShadowMap(entities, lightVP);
     }
 
-    m_Mesh3DShader->Use();
-    m_Mesh3DShader->SetMat4("u_VP", camera->GetViewProjectionMatrix());
-    glm::vec3 ld = glm::length(AstraPrefs::LightDir) > 0.0f ? glm::normalize(AstraPrefs::LightDir) : glm::vec3(0,1,0);
-    m_Mesh3DShader->SetVec3("u_LightDir", ld);
-    m_Mesh3DShader->SetVec3("u_LightColor", AstraPrefs::LightColor);
-    m_Mesh3DShader->SetFloat("u_Ambient", AstraPrefs::Ambient);
-    m_Mesh3DShader->SetInt("u_Texture", 0);
-    m_Mesh3DShader->SetMat4("u_LightVP", lightVP);
-    m_Mesh3DShader->SetFloat("u_UseShadow", useShadow ? 1.0f : 0.0f);
-    m_Mesh3DShader->SetFloat("u_Texel", 1.0f / std::max(m_ShadowTexSize, 1));
-    if (useShadow) {
+    glm::mat4 vp = camera->GetViewProjectionMatrix();
+    glm::vec3 ld = glm::length(AstraPrefs::LightDir) > 0.0f ? glm::normalize(AstraPrefs::LightDir)
+                                                           : glm::vec3(0, 1, 0);
+    float texel = 1.0f / std::max(m_ShadowTexSize, 1);
+    if (useShadow) {                       // карта теней — на втором текстурном юните
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, m_ShadowTex);
-        m_Mesh3DShader->SetInt("u_ShadowMap", 1);
         glActiveTexture(GL_TEXTURE0);
     }
 
+    // Свет/тени/камера одинаковые для системного и пользовательского шейдеров —
+    // набор униформ вынесен сюда, чтобы свой 3D-шейдер получал их «из коробки»
+    auto applyPass = [&](Shader* sh) {
+        sh->SetMat4("u_VP", vp);
+        sh->SetVec3("u_LightDir", ld);
+        sh->SetVec3("u_LightColor", AstraPrefs::LightColor);
+        sh->SetFloat("u_Ambient", AstraPrefs::Ambient);
+        sh->SetInt("u_Texture", 0);
+        sh->SetMat4("u_LightVP", lightVP);
+        sh->SetFloat("u_UseShadow", useShadow ? 1.0f : 0.0f);
+        sh->SetFloat("u_Texel", texel);
+        sh->SetInt("u_ShadowMap", 1);
+        sh->SetFloat("u_Time", static_cast<float>(glfwGetTime()));
+        sh->SetVec3("u_EyePos", camera->GetEyePosition());
+        sh->SetVec2("u_ScreenSize", glm::vec2(m_ScreenW > 0 ? m_ScreenW : 1,
+                                              m_ScreenH > 0 ? m_ScreenH : 1));
+    };
+    Shader* sysShader = m_Mesh3DShader.get();
+    sysShader->Use();
+    applyPass(sysShader);
+    Shader* active = sysShader;
+
     for (const auto& e : entities) {
         if (!e.is3D || !e.active) continue;
-        glm::mat4 model = Transforms::Model3D(e);
-        m_Mesh3DShader->SetMat4("u_Model", model);
-        m_Mesh3DShader->SetVec3("u_Color", e.mesh.color);
-
         const Mesh3D* mesh = MeshForEntity(e);
         if (!mesh || mesh->indexCount == 0) continue;
 
+        Shader* sh = sysShader;
+        if (!e.mesh.shaderPath.empty()) {
+            Shader* custom = GetUserShader3D(e.mesh.shaderPath);
+            if (custom) sh = custom;
+        }
+        if (sh != active) { sh->Use(); applyPass(sh); active = sh; }
+
+        sh->SetMat4("u_Model", Transforms::Model3D(e));
+        sh->SetVec3("u_Color", e.mesh.color);
+        sh->SetVec4("u_Params", e.sprite.materialParams);     // «Material» из инспектора — и в 3D
+        sh->SetVec4("u_PColor", e.sprite.materialColor);
         GLuint tex = e.mesh.texturePath.empty() ? m_WhiteTexture : GetTexture(e.mesh.texturePath);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, tex ? tex : m_WhiteTexture);
-        m_Mesh3DShader->SetFloat("u_UseTex", e.mesh.texturePath.empty() ? 0.0f : (tex ? 1.0f : 0.0f));
+        sh->SetFloat("u_UseTex", e.mesh.texturePath.empty() ? 0.0f : (tex ? 1.0f : 0.0f));
         glBindVertexArray(mesh->vao);
         glDrawElements(GL_TRIANGLES, mesh->indexCount, GL_UNSIGNED_INT, 0);
     }
@@ -904,6 +926,93 @@ static const char* kUserFragPrelude =
     "    return clamp(1.0 - d * d * strength * 4.0, 0.0, 1.0);\n"
     "}\n";
 
+// ===== 3D: преамбулы пользовательских меш-шейдеров =====
+static const char* kMeshUserVertPrelude =
+    "#version 460 core\n"
+    "layout(location = 0) in vec3 a_Pos;\n"
+    "layout(location = 1) in vec3 a_Normal;\n"
+    "layout(location = 2) in vec2 a_UV;\n"
+    "uniform mat4 u_VP;\n"
+    "uniform mat4 u_Model;\n"
+    "uniform float u_Time;\n"
+    "uniform vec2 u_ScreenSize;\n"
+    "out vec3 v_World;\n"
+    "out vec3 v_Normal;\n"
+    "out vec2 v_UV;\n"
+    // Стандартный вертекс: вызывает из main(), если вершинную часть писать не хочется.
+    "void EngineMeshVert() {\n"
+    "    vec4 w = u_Model * vec4(a_Pos, 1.0);\n"
+    "    v_World = w.xyz;\n"
+    "    v_Normal = mat3(u_Model) * a_Normal;\n"
+    "    v_UV = a_UV;\n"
+    "    gl_Position = u_VP * w;\n"
+    "}\n"
+    "vec4 EngineClip(vec3 localPos) { return u_VP * u_Model * vec4(localPos, 1.0); }\n"
+    "vec3 EngineWorld(vec3 localPos) { return (u_Model * vec4(localPos, 1.0)).xyz; }\n"
+    "vec3 EngineNormalWorld() { return normalize(mat3(u_Model) * a_Normal); }\n"
+    "vec3 EngineWaveVert(float amp, float freq) {\n"
+    "    return a_Pos + vec3(0.0, sin(u_Time * freq + a_Pos.x * 0.05 + a_Pos.z * 0.05) * amp, 0.0);\n"
+    "}\n";
+
+static const char* kMeshUserFragPrelude =
+    "#version 460 core\n"
+    "layout(location = 0) out vec4 fragColor;\n"
+    "in vec3 v_World;\n"
+    "in vec3 v_Normal;\n"
+    "in vec2 v_UV;\n"
+    "uniform sampler2D u_Texture;\n"
+    "uniform sampler2D u_ShadowMap;\n"
+    "uniform vec3 u_Color;\n"
+    "uniform vec4 u_Params;\n"
+    "uniform vec4 u_PColor;\n"
+    "uniform vec3 u_LightDir;\n"
+    "uniform vec3 u_LightColor;\n"
+    "uniform float u_Ambient;\n"
+    "uniform float u_UseTex;\n"
+    "uniform float u_UseShadow;\n"
+    "uniform float u_Texel;\n"
+    "uniform mat4 u_LightVP;\n"
+    "uniform vec3 u_EyePos;\n"
+    "uniform float u_Time;\n"
+    "uniform vec2 u_ScreenSize;\n"
+    "float EngineShadow(vec3 world, vec3 n) {\n"
+    "    if (u_UseShadow < 0.5) return 1.0;\n"
+    "    vec4 sc = u_LightVP * vec4(world, 1.0);\n"
+    "    if (sc.w <= 0.0) return 1.0;\n"
+    "    vec3 p = (sc.xyz / sc.w) * 0.5 + 0.5;\n"
+    "    if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0 || p.z > 1.0) return 1.0;\n"
+    "    float bias = max(0.0030 * (1.0 - max(dot(n, normalize(u_LightDir)), 0.0)), 0.0008);\n"
+    "    float lit = 0.0;\n"
+    "    for (int y = -1; y <= 1; y++)\n"
+    "        for (int x = -1; x <= 1; x++) {\n"
+    "            float d = texture(u_ShadowMap, p.xy + vec2(float(x), float(y)) * u_Texel).r;\n"
+    "            lit += (p.z - bias > d) ? 0.0 : 1.0;\n"
+    "        }\n"
+    "    return lit / 9.0;\n"
+    "}\n"
+    "vec3 EngineLightDir() { return normalize(u_LightDir); }\n"
+    "float EngineLambert(vec3 n) { return max(dot(normalize(n), EngineLightDir()), 0.0); }\n"
+    // Альбедо * (солнце * тень + ambient) — то же, что считает системный шейдер.
+    "vec3 EngineLit(vec3 albedo, vec3 n, vec3 world) {\n"
+    "    float sh = EngineShadow(world, normalize(n));\n"
+    "    return albedo * (u_LightColor * EngineLambert(n) * sh + vec3(u_Ambient));\n"
+    "}\n"
+    "vec4 EngineBaseColor() {\n"
+    "    return mix(vec4(1.0), texture(u_Texture, v_UV), u_UseTex) * vec4(u_Color, 1.0);\n"
+    "}\n"
+    "vec3 EngineViewDir() { return normalize(u_EyePos - v_World); }\n"
+    "float EngineFresnel(vec3 n, float power) {\n"
+    "    return pow(1.0 - max(dot(normalize(n), EngineViewDir()), 0.0), max(power, 0.01));\n"
+    "}\n"
+    "float EngineSpecular(vec3 n, float power) {\n"
+    "    vec3 h = normalize(EngineLightDir() + EngineViewDir());\n"
+    "    return pow(max(dot(normalize(n), h), 0.0), power);\n"
+    "}\n"
+    "float EngineFog(float density) {\n"
+    "    float d = length(u_EyePos - v_World);\n"
+    "    return 1.0 - exp(-d * density * 0.001);\n"
+    "}\n";
+
 // Пользователь мог оставить #version у себя — дубликат роняет компиляцию
 static std::string StripVersionLine(const std::string& src) {
     if (src.rfind("#version", 0) == 0) {
@@ -915,6 +1024,34 @@ static std::string StripVersionLine(const std::string& src) {
 
 static std::string LoadShaderFile(const std::string& path) {
     return AssetIO::ReadAll(path);   // прозрачно расшифровывает билд-ассеты
+}
+
+Shader* Renderer::GetUserShader3D(const std::string& basePath) {
+    const std::string key = "3d:" + basePath;
+    auto it = m_UserShaderCache.find(key);
+    if (it != m_UserShaderCache.end()) return it->second.get();
+    if (m_FailedUserShaders.count(key) > 0) return nullptr;
+
+    std::string vert = LoadShaderFile(basePath + ".vert");
+    std::string frag = LoadShaderFile(basePath + ".frag");
+    if (vert.empty() && !frag.empty())
+        vert = "void main() { EngineMeshVert(); }\n";
+    if (vert.empty() || frag.empty()) {
+        std::cerr << "[Shader3D] missing pair: " << basePath << ".vert/.frag\n";
+        m_FailedUserShaders.insert(key);
+        return nullptr;
+    }
+    std::string vs = std::string(kMeshUserVertPrelude) + StripVersionLine(vert);
+    std::string fs = std::string(kMeshUserFragPrelude) + StripVersionLine(frag);
+    auto shader = std::make_unique<Shader>(vs.c_str(), fs.c_str());
+    if (!shader->IsValid()) {
+        std::cerr << "[Shader3D] failed to build: " << basePath << "\n";
+        m_FailedUserShaders.insert(key);
+        return nullptr;
+    }
+    Shader* raw = shader.get();
+    m_UserShaderCache.emplace(key, std::move(shader));
+    return raw;
 }
 
 Shader* Renderer::GetUserShader(const std::string& basePath) {

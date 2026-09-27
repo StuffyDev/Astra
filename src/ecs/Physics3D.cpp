@@ -7,25 +7,13 @@
 
 glm::vec3 Physics3D::Gravity = glm::vec3(0.0f, -981.0f, 0.0f);   // 9.81 м/с² при 100 ед = 1 м
 
-namespace {
-
-glm::mat3 RotationOf(const glm::vec3& deg) {
-    glm::mat4 m(1.0f);   // glm 0.9.9 умеет крутить только mat4 — берём верхний левый блок
-    m = glm::rotate(m, glm::radians(deg.x), glm::vec3(1.0f, 0.0f, 0.0f));
-    m = glm::rotate(m, glm::radians(deg.y), glm::vec3(0.0f, 1.0f, 0.0f));
-    m = glm::rotate(m, glm::radians(deg.z), glm::vec3(0.0f, 0.0f, 1.0f));
-    return glm::mat3(m);
-}
-
-} // namespace
-
 bool Physics3D::IsDynamic(const Entity& e) {
     return e.hasRigidbody3D && !e.rb3.isKinematic && e.parentId == 0;
 }
 
 Physics3D::Bounds Physics3D::WorldBounds(const std::vector<Entity>& all, const Entity& e) {
     Bounds b;
-    glm::mat3 R = RotationOf(e.rot3);
+    glm::mat3 R = Transforms::Rotation3Mat(e.rot3);
     b.center = Transforms::WorldPos3(all, e) + R * e.col3.center;
     if (e.col3.type == Collider3DType::Sphere) {
         b.sphere = true;
@@ -33,10 +21,8 @@ Physics3D::Bounds Physics3D::WorldBounds(const std::vector<Entity>& all, const E
         b.radius = std::max(e.col3.radius, 0.001f) * s;
         b.half = glm::vec3(b.radius);
     } else {
-        glm::vec3 h = e.col3.half * e.scale3;
-        // |R| * h — габарит повёрнутого короба (AABB-приближение, как в дешёвом broad phase)
-        glm::vec3 c0 = glm::abs(R[0]), c1 = glm::abs(R[1]), c2 = glm::abs(R[2]);
-        b.half = c0 * h.x + c1 * h.y + c2 * h.z;
+        // габарит повёрнутого короба (AABB-приближение, как в дешёвом broad phase)
+        b.half = Transforms::RotatedBoxHalf(R, e.col3.half * e.scale3);
     }
     return b;
 }

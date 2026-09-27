@@ -17,6 +17,20 @@ inline glm::mat4 LocalMatrix(const Entity& e) {
     return m;
 }
 
+// Поворот 3D-сущности (градусы, порядок X→Y→Z) как матрица 3x3
+inline glm::mat3 Rotation3Mat(const glm::vec3& deg) {
+    glm::mat4 m(1.0f);   // glm 0.9.9 крутит только mat4 — берём верхний левый блок
+    m = glm::rotate(m, glm::radians(deg.x), glm::vec3(1.0f, 0.0f, 0.0f));
+    m = glm::rotate(m, glm::radians(deg.y), glm::vec3(0.0f, 1.0f, 0.0f));
+    m = glm::rotate(m, glm::radians(deg.z), glm::vec3(0.0f, 0.0f, 1.0f));
+    return glm::mat3(m);
+}
+
+// Габарит (AABB) повёрнутого короба с половинным размером h
+inline glm::vec3 RotatedBoxHalf(const glm::mat3& R, const glm::vec3& h) {
+    return glm::abs(R[0]) * h.x + glm::abs(R[1]) * h.y + glm::abs(R[2]) * h.z;
+}
+
 // Модель 3D-сущности: T(pos3) * Rx * Ry * Rz * S(scale3) — одна и та же для рендера и picking'а
 inline glm::mat4 Model3D(const Entity& e) {
     glm::mat4 m = glm::mat4(1.0f);

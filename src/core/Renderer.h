@@ -51,6 +51,8 @@ public:
 
     // Пользовательский шейдер пары <basePath>.vert/.frag; nullptr, если собрать не удалось
     Shader* GetUserShader(const std::string& basePath);
+    // Свой 3D-шейдер пары <basePath>.vert/.frag (преамбула даёт свет, тени, нормали)
+    Shader* GetUserShader3D(const std::string& basePath);
 
     void Shutdown();
 

@@ -236,6 +236,186 @@ void Script::LookAt(const glm::vec2& worldPoint) {
     if (Entity* e = Owner()) e->transform.rotation = AngleTo(worldPoint) - 90.0f;
 }
 
+// ===== 3D-хелперы Script =====
+glm::vec3 Script::Position3D() const {
+    if (!g_Scene) return glm::vec3(0.0f);
+    const Entity* e = FindById(ownerId);
+    return e ? Transforms::WorldPos3(g_Scene->GetEntities(), *e) : glm::vec3(0.0f);
+}
+
+void Script::SetPosition3D(const glm::vec3& world) {
+    if (!g_Scene) return;
+    if (Entity* e = Owner()) e->pos3 = world - (Transforms::WorldPos3(g_Scene->GetEntities(), *e) - e->pos3);
+}
+
+void Script::Translate3D(const glm::vec3& delta) {
+    if (Entity* e = Owner()) e->pos3 += delta;
+}
+
+glm::vec3 Script::Rotation3D() const {
+    const Entity* e = FindById(ownerId);
+    return e ? e->rot3 : glm::vec3(0.0f);
+}
+
+void Script::SetRotation3D(const glm::vec3& degrees) {
+    if (Entity* e = Owner()) e->rot3 = degrees;
+}
+
+void Script::SetScale3D(const glm::vec3& scale) {
+    if (Entity* e = Owner()) {
+        e->scale3 = scale;
+        e->transform.scale = glm::vec2(scale.x, scale.y);   // 2D-наследие не разъезжается
+    }
+}
+
+glm::vec3 Script::Velocity3D() const {
+    const Entity* e = FindById(ownerId);
+    return e ? e->rb3.velocity : glm::vec3(0.0f);
+}
+
+void Script::SetVelocity3D(const glm::vec3& v) {
+    if (Entity* e = Owner()) ::SetVelocity3D(e, v);
+}
+
+void Script::AddForce3D(const glm::vec3& impulse) {
+    if (Entity* e = Owner()) ::AddForce3D(e, impulse);
+}
+
+void Script::LookAt3D(const glm::vec3& worldTarget) {
+    Entity* e = Owner();
+    if (!e) return;
+    glm::vec3 d = worldTarget - Position3D();
+    if (glm::length(d) < 1e-5f) return;
+    e->rot3 = glm::vec3(-glm::degrees(std::asin(d.y / glm::length(d))),
+                        glm::degrees(std::atan2(-d.x, -d.z)),
+                        0.0f);
+}
+
+void Script::SetGravityEnabled3D(bool on) {
+    if (Entity* e = Owner()) {
+        if (!e->hasRigidbody3D) { e->hasRigidbody3D = true; e->rb3.drag = 0.0f; }
+        e->rb3.useGravity = on;
+    }
+}
+
+bool Script::Is3D() const {
+    const Entity* e = FindById(ownerId);
+    return e && e->is3D;
+}
+
+// ===== глобальные 3D-функции =====
+glm::vec3 Gravity3D() { return Physics3D::Gravity; }
+
+namespace {
+
+// Габарит 3D-сущности для луча: коллайдер, иначе коробка по мешу/масштабу
+bool EntityRayBounds(const std::vector<Entity>& all, const Entity& e, Physics3D::Bounds& b) {
+    if (!e.active || !e.is3D) return false;
+    if (e.hasCollider3D) { b = Physics3D::WorldBounds(all, e); return true; }
+    b.sphere = false;
+    b.center = Transforms::WorldPos3(all, e);
+    b.half = Transforms::RotatedBoxHalf(Transforms::Rotation3Mat(e.rot3), glm::vec3(0.5f) * e.scale3);
+    b.radius = 0.5f * std::max({e.scale3.x, e.scale3.y, e.scale3.z});
+    return true;
+}
+
+// Пересечение луча с AABB; возвращает расстояние до входа (или -1)
+float RayVsAABB(const glm::vec3& o, const glm::vec3& d, const glm::vec3& mn, const glm::vec3& mx) {
+    float tmin = 0.0f, tmax = 1e18f;
+    for (int i = 0; i < 3; i++) {
+        float oi = (&o.x)[i], di = (&d.x)[i], lo = (&mn.x)[i], hi = (&mx.x)[i];
+        if (std::fabs(di) < 1e-8f) {
+            if (oi < lo || oi > hi) return -1.0f;
+            continue;
+        }
+        float t1 = (lo - oi) / di, t2 = (hi - oi) / di;
+        if (t1 > t2) std::swap(t1, t2);
+        tmin = std::max(tmin, t1);
+        tmax = std::min(tmax, t2);
+        if (tmin > tmax) return -1.0f;
+    }
+    return tmin;
+}
+
+int Raycast3DImpl(const glm::vec3& origin, const glm::vec3& dir, float maxDist,
+                  RayHit3D* hits, int maxHits) {
+    if (!g_Scene || maxHits <= 0) return 0;
+    auto& all = g_Scene->GetEntities();
+    glm::vec3 nd = glm::length(dir) > 1e-6f ? glm::normalize(dir) : glm::vec3(0.0f, 0.0f, -1.0f);
+
+    struct Cand { float t; int idx; glm::vec3 n; };
+    std::vector<Cand> found;
+    for (size_t i = 0; i < all.size(); i++) {
+        Physics3D::Bounds b;
+        if (!EntityRayBounds(all, all[i], b)) continue;
+        float t = -1.0f;
+        glm::vec3 nrm(0.0f, 1.0f, 0.0f);
+        if (b.sphere) {
+            glm::vec3 oc = origin - b.center;
+            float bq = glm::dot(oc, nd);
+            float c = glm::dot(oc, oc) - b.radius * b.radius;
+            float disc = bq * bq - c;
+            if (disc < 0.0f) continue;
+            t = -bq - std::sqrt(disc);
+            if (t < 0.0f) t = 0.0f;
+            nrm = glm::normalize(origin + nd * t - b.center);
+        } else {
+            t = RayVsAABB(origin, nd, b.center - b.half, b.center + b.half);
+            if (t < 0.0f) continue;
+            // нормаль — по оси, где луч вошёл в коробку
+            glm::vec3 hitP = origin + nd * t;
+            glm::vec3 rel = hitP - b.center;
+            float best = -1.0f;
+            for (int k = 0; k < 3; k++) {
+                float v = std::fabs((&rel.x)[k]) / std::max((&b.half.x)[k], 1e-5f);
+                if (v > best) { best = v; nrm = glm::vec3(0.0f); (&nrm.x)[k] = (&rel.x)[k] >= 0.0f ? 1.0f : -1.0f; }
+            }
+        }
+        if (t > maxDist) continue;
+        found.push_back({ t, (int)i, nrm });
+    }
+    std::sort(found.begin(), found.end(), [](const Cand& a, const Cand& b) { return a.t < b.t; });
+    int n = 0;
+    for (const auto& c : found) {
+        if (n >= maxHits) break;
+        const Entity& e = all[c.idx];
+        hits[n].entityId = e.id;
+        hits[n].name = e.name;
+        hits[n].distance = c.t;
+        hits[n].point = origin + nd * c.t;
+        hits[n].normal = c.n;
+        n++;
+    }
+    return n;
+}
+
+} // namespace
+
+bool Raycast3D(const glm::vec3& origin, const glm::vec3& dir, float maxDist, RayHit3D& outHit) {
+    return Raycast3DImpl(origin, dir, maxDist, &outHit, 1) == 1;
+}
+
+int RaycastAll3D(const glm::vec3& origin, const glm::vec3& dir, float maxDist,
+                 RayHit3D* outHits, int maxHits) {
+    if (!outHits || maxHits <= 0) return 0;
+    for (int i = 0; i < maxHits; i++) outHits[i] = RayHit3D();
+    return Raycast3DImpl(origin, dir, maxDist, outHits, maxHits);
+}
+
+uint32_t InstantiatePrefab3D(const std::string& prefabPath, const glm::vec3& pos) {
+    if (!g_Scene) return 0;
+    std::vector<Entity> protos;
+    if (!SceneSerializer::LoadEntities(prefabPath, protos)) return 0;
+    for (auto& p : protos) {
+        p.is3D = true;
+        p.pos3 += pos;
+        p.transform.position += glm::vec2(pos.x, pos.y);
+    }
+    int idx = g_Scene->InstantiateProtos(protos, glm::vec2(0.0f));
+    if (idx < 0) return 0;
+    return g_Scene->GetEntities()[(size_t)idx].id;
+}
+
 float Time::Delta() { return g_Delta; }
 float Time::UnscaledDelta() { return g_UnscaledDelta; }
 float Time::SinceStart() { return g_Elapsed; }

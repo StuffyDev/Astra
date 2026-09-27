@@ -45,6 +45,22 @@ protected:
     glm::vec2 WorldPosition() const;                  // мировая позиция с учётом родителя
     float AngleTo(const glm::vec2& worldPoint) const; // градусы направления на точку
     void LookAt(const glm::vec2& worldPoint);         // повернуть "верх" объекта на точку
+
+    // ===== 3D (сущность с is3D): поза, скорость, силы =====
+    // Реализации — в core/Scripting.cpp. Все величины в мировых единицах движка
+    // (100 единиц = 1 метр по умолчанию, см. Settings ▸ Pixels per meter).
+    glm::vec3 Position3D() const;                     // мировая позиция (с parent-цепочкой)
+    void SetPosition3D(const glm::vec3& world);       // позиция в мире (пересчитывает в локальную)
+    void Translate3D(const glm::vec3& delta);         // сдвиг pos3 (без учёта родителя)
+    glm::vec3 Rotation3D() const;                     // углы в градусах (X→Y→Z)
+    void SetRotation3D(const glm::vec3& degrees);
+    void SetScale3D(const glm::vec3& scale);
+    glm::vec3 Velocity3D() const;                     // скорость Rigidbody (3D)
+    void SetVelocity3D(const glm::vec3& v);           // создаст Rigidbody (3D), если его нет
+    void AddForce3D(const glm::vec3& impulse);        // импульс F*dt: velocity += impulse / mass
+    void LookAt3D(const glm::vec3& worldTarget);      // развернуть -Z объекта на цель (как в Unity)
+    void SetGravityEnabled3D(bool on);
+    bool Is3D() const;
 };
 
 // Время кадра/сессии — доступно из любого места скрипта
@@ -78,11 +94,55 @@ uint32_t InstantiatePrefab(const std::string& prefabPath, const glm::vec2& world
 // Переключение сцены во время Play/игры: движок загрузит файл и пересоздаст скрипты
 void LoadScene(const std::string& scenePath);
 
+// ===== 3D-лучи и спавн =====
+struct RayHit3D {
+    uint32_t entityId = 0;
+    std::string name;
+    glm::vec3 point = glm::vec3(0.0f);
+    glm::vec3 normal = glm::vec3(0.0f);
+    float distance = 0.0f;
+};
+
+// Первый пересечение луча с 3D-телом сцены (коллайдер или габарит меша).
+// dir не обязан быть нормализован; maxDist — в мировых единицах.
+bool Raycast3D(const glm::vec3& origin, const glm::vec3& dir, float maxDist, RayHit3D& outHit);
+// То же, но список всех попаданий (от ближнего к дальнему)
+int RaycastAll3D(const glm::vec3& origin, const glm::vec3& dir, float maxDist,
+                 RayHit3D* outHits, int maxHits);
+// Гравитация 3D-мира (единиц/с²), читается из настроек движка
+glm::vec3 Gravity3D();
+
+// Инстанцировать префаб в 3D-точку (возвращает id корня new-инстанса)
+uint32_t InstantiatePrefab3D(const std::string& prefabPath, const glm::vec3& pos);
+
 // Импulse приложен к скорости (F*dt-подобный «толчок», как AddForce в Unity)
 inline void AddForce(Entity* e, const glm::vec2& impulse) {
     if (!e) return;
     float m = e->rigidbody.mass > 0.01f ? e->rigidbody.mass : 0.01f;
     e->rigidbody.velocity += impulse / m;
+}
+
+// То же для 3D-тела: Rigidbody (3D) создаётся автоматически, если его ещё нет
+inline void AddForce3D(Entity* e, const glm::vec3& impulse) {
+    if (!e) return;
+    if (!e->hasRigidbody3D) { e->hasRigidbody3D = true; e->rb3.useGravity = true; }
+    float m = e->rb3.mass > 0.01f ? e->rb3.mass : 0.01f;
+    e->rb3.velocity += impulse / m;
+}
+
+// Мгновенная скорость 3D-тела (тоже создаёт Rigidbody при необходимости)
+inline void SetVelocity3D(Entity* e, const glm::vec3& v) {
+    if (!e) return;
+    if (!e->hasRigidbody3D) { e->hasRigidbody3D = true; e->rb3.useGravity = false; }
+    e->rb3.velocity = v;
+}
+
+// Шаг к точке по прямой (для полёта/патруля в 3D)
+inline glm::vec3 MoveTowards3D(const glm::vec3& from, const glm::vec3& to, float maxDelta) {
+    glm::vec3 d = to - from;
+    float len = glm::length(d);
+    if (len <= maxDelta || len < 1e-6f) return to;
+    return from + d * (maxDelta / len);
 }
 
 // Спрайт-анимация: PlayAnimation(e) с fromStart=true — перемотка на первый кадр
