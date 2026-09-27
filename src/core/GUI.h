@@ -54,6 +54,7 @@ public:
     glm::vec2 GetSceneSize() const { return m_SceneSize; }
 
     bool IsAnyPopupOpen() const { return m_PopupOpen; }
+    bool Is3DEditor() const { return m_3DEditor; }
 
     int GetCurrentTile() const { return m_CurrentTile; }
 
@@ -111,6 +112,7 @@ private:
     char m_AudioPathBuffer[512] = {};
 
     // Видимость панелей
+    bool m_3DEditor = false;
     bool m_ShowScene = true;
     bool m_ShowGame = true;
     bool m_ShowHierarchy = true;

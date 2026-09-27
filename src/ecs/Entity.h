@@ -14,6 +14,12 @@ struct Entity {
     // ползунки появляются в Inspector, значения живут в сцене
     std::map<std::string, float> vars;
     Transform transform;
+    // 3D-режим: poz/rot/scale по трём осям (градусы), рисуется mesh вместо спрайта
+    bool is3D = false;
+    glm::vec3 pos3 = glm::vec3(0.0f);
+    glm::vec3 rot3 = glm::vec3(0.0f);
+    glm::vec3 scale3 = glm::vec3(100.0f);
+    MeshComponent mesh;
     Sprite sprite;
     SpriteAnimation animation;
     float animTime = 0.0f; // runtime-состояние, в файл не пишется

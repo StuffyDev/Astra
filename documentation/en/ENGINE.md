@@ -1,12 +1,13 @@
 # Astra — Engine User Guide
 
-Astra is a 2D game engine with a Unity-style editor: C++17, OpenGL 4.6, GLFW, ImGui (dockspace).
+Astra is a 2D/3D game engine with a Unity-style editor: C++17, OpenGL 4.6, GLFW, ImGui (dockspace).
 The editor, scenes, scripts, shaders, audio and game building all live in one binary, with no external runtimes.
 
 Contents: [build](#1-build-and-run) · [projects](#2-projects) · [interface](#3-editor-interface) ·
 [entities](#4-entities-and-components) · [scenes](#5-scenes) · [assets](#6-assets-and-import) ·
 [UI](#7-game-ui) · [undo](#8-undo--redo) · [hotkeys](#9-hotkeys) ·
-[settings](#10-engine-settings) · [build](#11-building-the-game-and-the-player) · [console](#12-console)
+[settings](#10-engine-settings) · [build](#11-building-the-game-and-the-player) · [console](#12-console) ·
+[3D](#14-3d-mode)
 
 ---
 
@@ -66,6 +67,8 @@ An entity = a set of fixed components (for now; a pure ECS is on the roadmap):
 
 - **Transform** — Position/Rotation/Scale. There is a `Parent`: children inherit the parent's pose
   (world matrices just like in Unity, including the chain's scale/rotation).
+  The **3D Object** checkbox switches an entity to three-axis mode: Position 3 / Rotation 3 (degrees) /
+  Scale 3 + **Mesh** instead of a sprite (see section 14).
 - **Sprite** — Type (None/Quad/Circle), Color, Texture Path, **Sorting Order** (a smaller value draws
   first/under the rest, just like in Unity), Custom Shader (see SHADER_API.md).
 - **Animation** — a sprite sheet: `Cols × Rows` (row 0 = top row), FPS, Loop, Play On Awake,
@@ -80,6 +83,8 @@ An entity = a set of fixed components (for now; a pure ECS is on the roadmap):
   **Follow Target** — the camera smoothly follows the selected entity (Damping = seconds,
   Offset = aim shift). **Level Bounds** — a rectangle of the level: the camera center is kept inside
   (zoom-aware). Screen shake from scripts: `ShakeCamera(15.0f, 0.3f)`.
+  **Perspective (3D)** + **Field of View** — perspective projection instead of the orthographic one
+  (section 14).
 - **UI Element** — see section 7.
 - **Animation events**: Animation > Events — markers (clip: any/specific, frame, name). When the frame
   crosses a marker, the carrier script gets `OnAnimEvent("step")` — footsteps/shots/hits exactly on frames.
@@ -165,12 +170,14 @@ the script reads `GameUI::WasClicked(id)` / `GameUI::GetValue(id)`.
 - **Editor** — the rotation snap step (°), UI theme **Light theme** (light/dark UI switched at runtime).
 - **Time** — Time Scale (applied when entering Play, survives Stop).
 - **Audio** — Master Volume, Mute, device status.
+- **Lighting (3D)** — the sun direction (Light Dir, three numbers — a vector the engine normalizes),
+  the sun color (Light Color) and the fill light (Ambient). They affect every mesh object (section 14).
 
 The file browsers (Browse/Import) are ordinary windows: you can keep working with the rest of the
 interface, ESC closes them. All the settings are saved to `~/.astra/config.ini` and restored on launch
-(theme, background, grid, snap, px/m, volume, time scale). The interface is soft and rounded, in two
-themes: the dark "Astra Slate" and the light "Astra Paper". The file icons (folder/image/script/shader/
-scene/prefab/audio) are drawn as vectors in the engine code — no third-party assets at all.
+(theme, background, grid, snap, px/m, volume, time scale, the 3D scene's light). The interface is soft and
+rounded, in two themes: the dark "Astra Slate" and the light "Astra Paper". The file icons (folder/image/
+script/shader/scene/prefab/audio) are drawn as vectors in the engine code — no third-party assets at all.
 
 ## 11. Building the Game and the Player
 
@@ -216,3 +223,40 @@ clicking a line — copies that line. The error counter lives on the toolbar (re
 - `assets/scenes/animation_demo.scene` — a 4×2 sprite-sheet ball + live Material parameters.
 - `assets/scripts/rotate.cpp`, `player.cpp`, `examples/black_hole/orbit_planet.cpp`.
 - `examples/` — sources of the examples; `templates/default_project` — the project template.
+
+## 14. 3D Mode
+
+Stage one: a perspective camera, mesh primitives, `.obj` import and simple lighting.
+The 2D tools (sprites, UI, tilemap, colliders, scripts) keep working next to it.
+
+**Enable**: `View ▸ 3D Mode`. The Scene viewport turns three-dimensional:
+- **RMB + mouse movement** — orbit around the view center (yaw is free, pitch clamped to ±89°);
+- **mouse wheel** — the distance to the focus point (50…40000 world units);
+- 2D pan/zoom/gizmo are disabled in this mode (mouse dragging comes in the next stage),
+  selection works in the Hierarchy.
+
+**Creating**: `GameObject ▸ Create 3D ▸ Cube / Plane / Sphere / OBJ Model`.
+Any entity's Inspector has a **3D Object** checkbox: Position 3 / Rotation 3 (in degrees, order X→Y→Z) /
+Scale 3, **Mesh** (Cube/Plane/Sphere/OBJ), the `.obj` path, Mesh Texture, Mesh Color.
+A 3D entity still has `transform.position/scale` — the 2D legacy and the physics need them;
+the 3D position comes from `pos3`.
+
+**Lighting** is Lambertian: `diffuse = max(dot(n, sun), 0) * LightColor + Ambient`. The sun
+direction/color and the ambient term are set in Edit ▸ Settings ▸ Lighting (3D) and saved to
+`~/.astra/config.ini`. The texture is multiplied by the color and the light; with no texture you get a
+flat material. Primitive normals are generated by the engine; for `.obj` they come from the file (`vn`)
+or are recomputed per face.
+
+**The game camera**: the Camera component gains **Perspective (3D)** and **Field of View**.
+The Game view renders the 3D entities through that camera (2D objects still go through the orthographic
+one). The depth buffer is cleared before the meshes, so cubes don't show through each other.
+
+**Serialization** (scene/prefab file): `Is3D`, `Pos3`, `Rot3`, `Scale3`, `MeshType`
+(0=Cube, 1=Plane, 2=Sphere, 3=OBJ), `MeshPath`, `MeshTex`, `MeshColor`, `CamPersp`, `CamFov`.
+Old files load unchanged — there `Is3D: 0` is the default.
+
+**Game build**: the `.obj` from `MeshPath` and the image from `MeshTex` join the scene's dependency list,
+so they are copied and encrypted exactly like textures and sounds (section 11).
+
+**Next on the 3D plan**: a 3D gizmo and dragging, click picking, shadows, skeletal animation,
+glTF instead of OBJ, 3D physics.

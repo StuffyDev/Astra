@@ -125,6 +125,8 @@ struct Collider {
 
 struct CameraComponent {
     bool mainCamera = false;
+    bool perspective = false; // 3D-проекция в Game-view
+    float fov = 50.0f;
     float zoom = 1.0f;
     glm::vec2 offset = glm::vec2(0.0f, 0.0f);
     // Follow: камера плавно идёт за сущностью (0 = выкл). Damping — секунды до сокращения дистанции.
@@ -159,6 +161,14 @@ struct UIComponent {
     glm::vec4 bgColor = glm::vec4(0.22f, 0.32f, 0.45f, 1.0f);
     // 0 = обычный шрифт, 1 = средний, 2 = крупный
     int fontScale = 0;
+};
+
+// 3D-меш сущности: примитив или OBJ. Действует, когда Entity.is3D.
+struct MeshComponent {
+    int type = 0;              // 0 Cube, 1 Plane, 2 Sphere, 3 OBJ
+    std::string meshPath;      // для type==3: assets/models/*.obj
+    std::string texturePath;   // пусто — однотонный
+    glm::vec3 color = glm::vec3(1.0f);
 };
 
 // Аналог Unity AudioSource: путь к клипу (wav/mp3/ogg/flac), playOnAwake запускает

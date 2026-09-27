@@ -244,6 +244,34 @@ void Application::ProcessInput(float deltaTime) {
         m_EditorState = EditorState::Edit;
     }
 
+    // ===== 3D Mode: RMB — орбита, колесо — зум-дальность =====
+    if (m_GUI->Is3DEditor()) {
+        m_Camera->SetPerspective(true);
+        if (!m_OrbitInit) {
+            m_OrbitFocus = glm::vec3(m_Camera->GetPosition(), 0.0f);
+            m_OrbitYaw = 40.0f; m_OrbitPitch = 28.0f; m_OrbitDist = 1500.0f;
+            m_OrbitInit = true;
+        }
+        if (m_GUI->IsSceneHovered() && !m_GUI->IsAnyPopupOpen()) {
+            if (m_Window->IsMouseButtonDown(GLFW_MOUSE_BUTTON_RIGHT)) {
+                glm::vec2 d = m_Window->GetMousePos() - m_Window->GetLastMousePos();
+                m_OrbitYaw -= d.x * 0.25f;
+                m_OrbitPitch = std::clamp(m_OrbitPitch + d.y * 0.25f, -89.0f, 89.0f);
+            }
+            float scroll = m_Window->GetScrollOffset();
+            if (scroll != 0.0f)
+                m_OrbitDist = std::clamp(m_OrbitDist * (1.0f - scroll * 0.1f), 50.0f, 40000.0f);
+            Input::Get().FeedScroll(scroll);
+        }
+        m_Camera->SetOrbit(m_OrbitFocus, m_OrbitYaw, m_OrbitPitch, m_OrbitDist);
+        m_Window->UpdateLastMousePos();
+        m_Window->ResetScrollOffset();
+        return;
+    }
+    m_OrbitInit = false;
+    m_Camera->SetPerspective(false);
+    m_Camera->ClearOrbit();
+
     // Если GUI открыт попап — не обрабатываем ввод сцены
     if (m_GUI->IsAnyPopupOpen()) {
         m_Window->UpdateLastMousePos();

@@ -1,12 +1,13 @@
 # Astra — Engine-Benutzerhandbuch
 
-Astra ist eine 2D-Spiel-Engine mit einem Editor im Unity-Stil: C++17, OpenGL 4.6, GLFW, ImGui (Dockspace).
+Astra ist eine 2D/3D-Spiel-Engine mit einem Editor im Unity-Stil: C++17, OpenGL 4.6, GLFW, ImGui (Dockspace).
 Editor, Szenen, Skripte, Shader, Audio und der Spiel-Build stecken in einer einzigen Binary — ohne externe Runtimes.
 
 Inhaltsverzeichnis: [Build](#1-build-und-start) · [Projekte](#2-projekte) · [Oberfläche](#3-editor-oberfläche) ·
 [Entities](#4-entities-und-komponenten) · [Szenen](#5-szenen) · [Assets](#6-assets-und-import) ·
 [UI](#7-spieloberfläche) · [Undo](#8-undo--redo) · [Tastenkürzel](#9-tastenkürzel) ·
-[Einstellungen](#10-engine-einstellungen) · [Build](#11-spiel-bauen-und-player) · [Konsole](#12-konsole)
+[Einstellungen](#10-engine-einstellungen) · [Build](#11-spiel-bauen-und-player) · [Konsole](#12-konsole) ·
+[3D](#14-3d-modus)
 
 ---
 
@@ -65,6 +66,8 @@ Eine Entity = ein Satz fest vorgegebener Komponenten (im Moment so; ein reines E
 
 - **Transform** — Position/Rotation/Scale. Es gibt `Parent`: Kinder übernehmen die Pose des Elternobjekts
   (Weltraum-Matrizen wie in Unity, einschließlich Skalierung/Drehung der Kette).
+  Das Häkchen **3D Object** stellt die Entity auf den dreiachsigen Modus um: Position 3 / Rotation 3 (°) /
+  Scale 3 + **Mesh** statt eines Sprites (siehe Abschnitt 14).
 - **Sprite** — Type (None/Quad/Circle), Color, Texture Path, **Sorting Order** (ein kleinerer Wert
   wird früher/unter den anderen gezeichnet, wie in Unity), Custom Shader (siehe SHADER_API.md).
 - **Animation** — Sprite Sheet: `Cols × Rows` (row 0 = oberste Zeile), FPS, Loop, Play On Awake,
@@ -80,6 +83,7 @@ Eine Entity = ein Satz fest vorgegebener Komponenten (im Moment so; ein reines E
   **Follow Target** — die Kamera folgt sanft der gewählten Entity (Damping = Sekunden,
   Offset = Zielversatz). **Level Bounds** — ein Rechteck des Levels: die Kameramitte bleibt darin
   (unter Berücksichtigung des Zooms). Screenshake aus Skripten: `ShakeCamera(15.0f, 0.3f)`.
+  **Perspective (3D)** + **Field of View** — perspektive Projektion statt der orthografischen (Abschnitt 14).
 - **UI Element** — siehe Abschnitt 7.
 - **Animations-Ereignisse**: Animation > Events — Marken (Clip: beliebig/bestimmter, Frame, Name).
   Wenn der Frame eine Marke überquert, erhält das Träger-Skript `OnAnimEvent("step")` —
@@ -167,12 +171,15 @@ sind sie klickbar; das Skript liest `GameUI::WasClicked(id)` / `GameUI::GetValue
 - **Editor** — Snap-Weite der Rotation (°), UI-Thema **Light theme** (helles/dunkles UI zur Laufzeit umschaltbar).
 - **Time** — Time Scale (wird beim Wechsel in Play angewandt, überlebt Stop).
 - **Audio** — Master Volume, Mute, Status des Geräts.
+- **Lighting (3D)** — Richtung der Sonne (Light Dir, drei Zahlen — ein Vektor, von der Engine normalisiert),
+  Sonnenfarbe (Light Color) und Aufhelllicht (Ambient). Gelten für alle Mesh-Objekte (Abschnitt 14).
 
 Die Dateibrowser (Browse/Import) sind gewöhnliche Fenster: Man kann parallel mit dem Rest der
 Oberfläche arbeiten, ESC schließt sie. Alle Einstellungen werden in `~/.astra/config.ini` gespeichert
-und beim Start wiederhergestellt (Thema, Hintergrund, Grid, Snap, px/m, Lautstärke, Time Scale).
-Die Oberfläche ist weich und abgerundet, in zwei Themen: das dunkle »Astra Slate« und das helle
-»Astra Paper«. Die Datei-Icons (Ordner/Bild/Skript/Shader/Szene/Prefab/Audio) sind als Vektoren im
+und beim Start wiederhergestellt (Thema, Hintergrund, Grid, Snap, px/m, Lautstärke, Time Scale,
+das Licht der 3D-Szene). Die Oberfläche ist weich und abgerundet, in zwei Themen: das dunkle
+»Astra Slate« und das helle »Astra Paper«. Die Datei-Icons (Ordner/Bild/Skript/Shader/Szene/Prefab/Audio)
+sind als Vektoren im
 Engine-Code gezeichnet — gar keine externen Assets.
 
 ## 11. Spiel bauen und Player
@@ -220,3 +227,42 @@ die Zwischenablage; Klick auf eine Zeile — diese Zeile kopieren. Der Fehlerzä
 - `assets/scenes/animation_demo.scene` — Sprite-Sheet-Ball 4×2 + Live-Material-Parameter.
 - `assets/scripts/rotate.cpp`, `player.cpp`, `examples/black_hole/orbit_planet.cpp`.
 - `examples/` — Quelltexte der Beispiele; `templates/default_project` — Projektvorlage.
+
+## 14. 3D-Modus
+
+Die erste Ausbaustufe: perspektive Kamera, Mesh-Primitive, `.obj`-Import und einfaches Licht.
+Die 2D-Werkzeuge (Sprites, UI, Tilemap, Kollider, Skripte) laufen daneben unverändert weiter.
+
+**Einschalten**: `View ▸ 3D Mode`. Der Scene-Viewport wird dreidimensional:
+- **Rechtsklick + Mausbewegung** — Orbit um die Mitte der Ansicht (yaw frei, pitch auf ±89° begrenzt);
+- **Mausrad** — Abstand zum Fokus (50…40000 Welteinheiten);
+- 2D-Pan/-Zoom/-Gizmo sind in diesem Modus abgeschaltet (Ziehen mit der Maus kommt in der nächsten
+  Stufe), ausgewählt wird über die Hierarchy.
+
+**Erzeugen**: `GameObject ▸ Create 3D ▸ Cube / Plane / Sphere / OBJ Model`.
+Im Inspector hat jede Entity die Checkbox **3D Object**: Position 3 / Rotation 3 (in Grad,
+Reihenfolge X→Y→Z) / Scale 3, **Mesh** (Cube/Plane/Sphere/OBJ), `.obj`-Pfad, Mesh Texture, Mesh Color.
+`transform.position/scale` bleiben bei einer 3D-Entity erhalten — sie gelten weiter für das 2D-Erbe und
+die Physik; die Position im 3D kommt aus `pos3`.
+
+**Licht** — lambertsch: `diffuse = max(dot(n, sun), 0) * LightColor + Ambient`,
+Sonnenrichtung/-farbe und Ambient werden in Edit ▸ Settings ▸ Lighting (3D) gesetzt und in
+`~/.astra/config.ini` gespeichert. Die Textur wird mit Farbe und Licht multipliziert; ohne Textur
+entsteht ein einfarbiges Material. Die Normalen der Primitive erzeugt die Engine selbst, die der
+`.obj` stammen aus der Datei (`vn`) oder werden je Fläche neu berechnet.
+
+**Spielkamera**: Die Camera-Komponente bietet **Perspective (3D)** und **Field of View**.
+Der Game-View rendert die 3D-Entities durch diese Kamera (2D-Objekte bleiben wie bisher bei der
+orthografischen). Der Depth-Buffer wird vor den Meshes gelöscht, deshalb scheinen Würfel nicht
+mehr durcheinander hindurch.
+
+**Serialisierung** (Scene- bzw. Prefab-Datei): `Is3D`, `Pos3`, `Rot3`, `Scale3`, `MeshType`
+(0=Cube, 1=Plane, 2=Sphere, 3=OBJ), `MeshPath`, `MeshTex`, `MeshColor`, `CamPersp`, `CamFov`.
+Alte Dateien laden unverändert — dort steht `Is3D: 0` als Standard.
+
+**Spiel-Build**: Die `.obj` aus `MeshPath` und das Bild aus `MeshTex` rücken in die
+Abhängigkeitsliste der Szene, werden also genauso kopiert und verschlüsselt wie Texturen und Sounds
+(Abschnitt 11).
+
+**Weiterer 3D-Plan**: Gizmo und Ziehen im 3D, Picking per Klick, Schatten, Skelett-Animation,
+glTF statt OBJ, 3D-Physik.

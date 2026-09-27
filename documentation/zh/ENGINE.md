@@ -1,12 +1,13 @@
 # Astra — 引擎使用手册
 
-Astra 是一款带 Unity 风格编辑器的 2D 游戏引擎：C++17、OpenGL 4.6、GLFW、ImGui（dockspace）。
+Astra 是一款带 Unity 风格编辑器的 2D/3D 游戏引擎：C++17、OpenGL 4.6、GLFW、ImGui（dockspace）。
 编辑器、场景、脚本、着色器、音频与游戏打包全部在同一个可执行文件里，不依赖任何外部运行时。
 
 目录：[构建](#1-构建与运行) · [项目](#2-项目) · [界面](#3-编辑器界面) ·
 [实体](#4-实体与组件) · [场景](#5-场景) · [资源](#6-资源与导入) ·
 [UI](#7-游戏界面) · [undo](#8-undo--redo) · [快捷键](#9-快捷键) ·
-[设置](#10-引擎设置) · [打包](#11-游戏打包与播放器) · [控制台](#12-控制台)
+[设置](#10-引擎设置) · [打包](#11-游戏打包与播放器) · [控制台](#12-控制台) ·
+[3D](#14-3d-模式)
 
 ---
 
@@ -65,6 +66,8 @@ Deselect）；在 Project 中 — 在空白处（Create Folder/Shader/Script、I
 
 - **Transform** — Position/Rotation/Scale。支持 `Parent`：子物体继承父物体的姿态
   （世界矩阵行为与 Unity 一致，包括整条链上的缩放/旋转）。
+  **3D Object** 复选框会把实体切换为三轴模式：Position 3 / Rotation 3（度）/ Scale 3，
+  并用 **Mesh** 取代 sprite（见第 14 节）。
 - **Sprite** — Type（None/Quad/Circle）、Color、Texture Path、**Sorting Order**（值越小越早绘制、
   压在其它物体下面，与 Unity 一致）、Custom Shader（见 SHADER_API.md）。
 - **Animation** — 图集动画：`Cols × Rows`（row 0 = 最上面一行）、FPS、Loop、Play On Awake、
@@ -79,6 +82,7 @@ Deselect）；在 Project 中 — 在空白处（Create Folder/Shader/Script、I
   **Follow Target** — 相机平滑跟随选中的实体（Damping = 秒，Offset = 瞄准偏移）。
   **Level Bounds** — 关卡的一个矩形：相机中心不会被放出边界（考虑缩放）。
   脚本触发屏幕震动：`ShakeCamera(15.0f, 0.3f)`。
+  **Perspective (3D)** + **Field of View** — 用透视投影取代正交投影（见第 14 节）。
 - **UI Element** — 见第 7 节。
 - **动画事件**：Animation > Events — 标记（clip：任意/指定、帧、名字）。当帧越过标记时，
   载体脚本收到 `OnAnimEvent("step")` — 脚步声/射击/命中精确落在帧上。
@@ -162,10 +166,12 @@ Entity + UI Element 组件：**Button / Text / Slider / Checkbox / Progress Bar*
 - **Editor** — 旋转吸附步长（°）、界面主题 **Light theme**（亮色/暗色 UI 在运行时切换）。
 - **Time** — Time Scale（在进入 Play 时生效，Stop 之后仍然保留）。
 - **Audio** — Master Volume、Mute、音频设备状态。
+- **Lighting (3D)** — 太阳方向（Light Dir，三个数构成一个向量，由引擎归一化）、
+  太阳颜色（Light Color）与环境补光（Ambient）。作用于所有 mesh 物体（见第 14 节）。
 
 文件浏览器（Browse/Import）是普通窗口：可以同时操作界面的其它部分，按 ESC 关闭。
 所有设置都会保存到 `~/.astra/config.ini`，并在启动时恢复（主题、背景、网格、吸附、px/米、音量、
-time scale）。界面是柔和的圆角风格，分两套主题：暗色「Astra Slate」与亮色「Astra Paper」。
+time scale、3D 场景光照）。界面是柔和的圆角风格，分两套主题：暗色「Astra Slate」与亮色「Astra Paper」。
 文件图标（文件夹/图片/脚本/着色器/场景/预设/音频）全部以矢量方式画在引擎代码里 — 不使用任何第三方资源。
 
 ## 11. 游戏打包与播放器
@@ -208,3 +214,36 @@ Project 面板中的 **Console** 标签页：引擎、脚本以及编译错误�
 - `assets/scenes/animation_demo.scene` — 4×2 图集小球 + 实时的 Material 参数。
 - `assets/scripts/rotate.cpp`、`player.cpp`、`examples/black_hole/orbit_planet.cpp`。
 - `examples/` — 示例的源码；`templates/default_project` — 项目模板。
+
+## 14. 3D 模式
+
+第一阶段：透视相机、mesh 基元、`.obj` 导入和简单光照。
+2D 工具（sprite、UI、Tilemap、碰撞体、脚本）继续在旁边正常工作。
+
+**开启**：`View ▸ 3D Mode`。Scene 视口会变成三维：
+- **右键 + 移动鼠标** — 绕视图中心环绕（yaw 自由，pitch 限制在 ±89°）；
+- **滚轮** — 到焦点的距离（50…40000 世界单位）；
+- 该模式下 2D 的平移/缩放/gizmo 都会关闭（鼠标拖拽是下一阶段的功能），选择在 Hierarchy 里进行。
+
+**创建**：`GameObject ▸ Create 3D ▸ Cube / Plane / Sphere / OBJ Model`。
+Inspector 里任何实体都有一个 **3D Object** 复选框：Position 3 / Rotation 3（以度为单位，
+按 X→Y→Z 顺序）/ Scale 3、**Mesh**（Cube/Plane/Sphere/OBJ）、`.obj` 路径、Mesh Texture、Mesh Color。
+3D 实体仍然保留 `transform.position/scale` —— 它们用于 2D 遗留与物理，而 3D 中的位置取自 `pos3`。
+
+**光照** —— Lambertian 漫反射：`diffuse = max(dot(n, sun), 0) * LightColor + Ambient`，
+太阳方向/颜色与 ambient 在 Edit ▸ Settings ▸ Lighting (3D) 里设置，并保存到 `~/.astra/config.ini`。
+纹理会乘以颜色和光照；没有纹理时就是纯色材质。
+基元的法线由引擎生成，`.obj` 的法线取自文件里的 `vn`，没有则按面重新计算。
+
+**游戏相机**：Camera 组件上有 **Perspective (3D)** 和 **Field of View**。
+Game 视图透过这台相机渲染 3D 实体（2D 物体仍像以前那样走正交投影）。
+在绘制 mesh 之前会清空深度缓冲，因此立方体之间不会互相「透视穿透」。
+
+**序列化**（场景/预设文件）：`Is3D`、`Pos3`、`Rot3`、`Scale3`、`MeshType`
+（0=Cube、1=Plane、2=Sphere、3=OBJ）、`MeshPath`、`MeshTex`、`MeshColor`、`CamPersp`、`CamFov`。
+旧文件无需改动即可加载 —— 那里 `Is3D` 默认为 0。
+
+**游戏打包**：`MeshPath` 里的 `.obj` 与 `MeshTex` 里的图片会被加入场景的依赖列表，
+也就是和纹理、音频一样被复制/加密（见第 11 节）。
+
+**3D 后续计划**：3D gizmo 与拖拽、点击拾取（picking）、阴影、骨骼动画、用 glTF 取代 OBJ、3D 物理。

@@ -2,6 +2,7 @@
 #include "core/Camera.h"
 #include "core/SystemShaders.h"
 #include "core/Prefs.h"
+#include <glm/gtc/matrix_transform.hpp>
 #include "utils/AssetIO.h"
 #include "ecs/Entity.h"
 #include "ecs/Physics.h"
@@ -19,6 +20,47 @@
 Renderer::Renderer() = default;
 Renderer::~Renderer() { Shutdown(); }
 
+static const char* kMesh3DVert = R"(
+#version 460 core
+layout(location = 0) in vec3 a_Pos;
+layout(location = 1) in vec3 a_Normal;
+layout(location = 2) in vec2 a_UV;
+uniform mat4 u_VP;
+uniform mat4 u_Model;
+out vec3 v_Normal;
+out vec3 v_World;
+out vec2 v_UV;
+void main() {
+    vec4 w = u_Model * vec4(a_Pos, 1.0);
+    v_World = w.xyz;
+    v_Normal = mat3(u_Model) * a_Normal;
+    v_UV = a_UV;
+    gl_Position = u_VP * w;
+}
+)";
+
+static const char* kMesh3DFrag = R"(
+#version 460 core
+in vec3 v_Normal;
+in vec3 v_World;
+in vec2 v_UV;
+out vec4 FragColor;
+uniform vec3 u_Color;
+uniform sampler2D u_Texture;
+uniform float u_UseTex;
+uniform vec3 u_LightDir;
+uniform vec3 u_LightColor;
+uniform float u_Ambient;
+void main() {
+    vec4 tex = mix(vec4(1.0), texture(u_Texture, v_UV), u_UseTex);
+    vec3 n = normalize(v_Normal);
+    float ndl = max(dot(n, normalize(u_LightDir)), 0.0);
+    vec3 light = u_LightColor * ndl + vec3(u_Ambient);
+    FragColor = vec4(u_Color * tex.rgb * light, tex.a);
+}
+)";
+
+
 void Renderer::Init() {
     SetupGridBuffers();
     SetupQuad();
@@ -31,6 +73,8 @@ void Renderer::Init() {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     CreateShaders();
+    m_Mesh3DShader = std::make_unique<Shader>(kMesh3DVert, kMesh3DFrag);
+    Setup3D();
 }
 
 void Renderer::CreateShaders() {
@@ -152,6 +196,220 @@ void Renderer::SetupGizmoBuffers() {
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
     glBindVertexArray(0);
+}
+
+// ================= 3D =================
+
+struct Mesh3DData {
+    std::vector<float> verts;
+    std::vector<uint32_t> idx;
+};
+
+static void PushVert(std::vector<float>& v, float x, float y, float z,
+                     float nx, float ny, float nz, float u, float vv) {
+    v.insert(v.end(), { x, y, z, nx, ny, nz, u, vv });
+}
+
+static Mesh3DData BuildCube() {
+    std::vector<float> vs; std::vector<uint32_t> is;
+    struct F { glm::vec3 n; glm::vec3 a, b, c, d; };
+    float s = 0.5f;
+    F faces[6] = {
+        { {0,0,1},  {-s,-s,s}, {s,-s,s}, {s,s,s}, {-s,s,s} },
+        { {0,0,-1}, {s,-s,-s}, {-s,-s,-s}, {-s,s,-s}, {s,s,-s} },
+        { {1,0,0},  {s,-s,s}, {s,-s,-s}, {s,s,-s}, {s,s,s} },
+        { {-1,0,0}, {-s,-s,-s}, {-s,-s,s}, {-s,s,s}, {-s,s,-s} },
+        { {0,1,0},  {-s,s,s}, {s,s,s}, {s,s,-s}, {-s,s,-s} },
+        { {0,-1,0}, {-s,-s,-s}, {s,-s,-s}, {s,-s,s}, {-s,-s,s} },
+    };
+    float uv[4][2] = { {0,0}, {1,0}, {1,1}, {0,1} };
+    for (int f = 0; f < 6; f++) {
+        uint32_t base = (uint32_t)(vs.size() / 8);
+        glm::vec3 faceVerts[4] = { faces[f].a, faces[f].b, faces[f].c, faces[f].d };
+        for (int i = 0; i < 4; i++)
+            PushVert(vs, faceVerts[i].x, faceVerts[i].y, faceVerts[i].z,
+                     faces[f].n.x, faces[f].n.y, faces[f].n.z, uv[i][0], uv[i][1]);
+        is.insert(is.end(), { base, base+1, base+2, base, base+2, base+3 });
+    }
+    return { vs, is };
+}
+
+static Mesh3DData BuildPlane() {
+    std::vector<float> vs; std::vector<uint32_t> is;
+    float s = 0.5f;
+    PushVert(vs, -s, 0, s, 0,1,0, 0,1); PushVert(vs, s, 0, s, 0,1,0, 1,1);
+    PushVert(vs, s, 0, -s, 0,1,0, 1,0); PushVert(vs, -s, 0, -s, 0,1,0, 0,0);
+    is = { 0,1,2, 0,2,3 };
+    return { vs, is };
+}
+
+static Mesh3DData BuildSphere() {
+    std::vector<float> vs; std::vector<uint32_t> is;
+    const int stacks = 16, slices = 24;
+    for (int i = 0; i <= stacks; i++) {
+        float phi = (float)i / stacks * 3.14159265f;
+        for (int j = 0; j <= slices; j++) {
+            float th = (float)j / slices * 2.0f * 3.14159265f;
+            float x = sinf(phi) * cosf(th), y = cosf(phi), z = sinf(phi) * sinf(th);
+            PushVert(vs, x*0.5f, y*0.5f, z*0.5f, x, y, z, (float)j/slices, 1.0f - (float)i/stacks);
+        }
+    }
+    for (int i = 0; i < stacks; i++)
+        for (int j = 0; j < slices; j++) {
+            uint32_t a = i*(slices+1)+j, b = a + slices + 1;
+            is.insert(is.end(), { a, b, a+1, b, b+1, a+1 });
+        }
+    return { vs, is };
+}
+
+Renderer::Mesh3D Renderer::MakeMesh3D(const std::vector<float>& verts, const std::vector<uint32_t>& idx) {
+    Mesh3D m;
+    m.indexCount = (int)idx.size();
+    glGenVertexArrays(1, &m.vao);
+    glBindVertexArray(m.vao);
+    glGenBuffers(1, &m.vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, m.vbo);
+    glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(float), verts.data(), GL_STATIC_DRAW);
+    glGenBuffers(1, &m.ebo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, idx.size() * sizeof(uint32_t), idx.data(), GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(3*sizeof(float)));
+    glEnableVertexAttribArray(2); glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(6*sizeof(float)));
+    glBindVertexArray(0);
+    return m;
+}
+
+const Renderer::Mesh3D& Renderer::GetObjMesh(const std::string& path) {
+    static Mesh3D empty;
+    auto it = m_ObjCache.find(path);
+    if (it != m_ObjCache.end()) return it->second;
+    Mesh3D out;
+    std::ifstream f(path);
+    if (f.is_open()) {
+        std::vector<glm::vec3> pos, nrm;
+        std::vector<glm::vec2> uvs;
+        std::vector<float> verts; std::vector<uint32_t> idx;
+        auto splitIdx = [](const std::string& s, int& a, int& b, int& c) {
+            a = b = c = 0;
+            size_t p1 = s.find('/'), p2 = p1 == std::string::npos ? std::string::npos : s.find('/', p1 + 1);
+            try {
+                a = std::stoi(s.substr(0, p1));
+                if (p1 != std::string::npos) {
+                    std::string mid = s.substr(p1 + 1, p2 == std::string::npos ? std::string::npos : p2 - p1 - 1);
+                    if (!mid.empty()) b = std::stoi(mid);
+                    if (p2 != std::string::npos) c = std::stoi(s.substr(p2 + 1));
+                }
+            } catch (...) {}
+        };
+        std::string line;
+        while (std::getline(f, line)) {
+            if (line.rfind("v ", 0) == 0) {
+                glm::vec3 v(0); sscanf(line.c_str() + 2, "%f %f %f", &v.x, &v.y, &v.z); pos.push_back(v);
+            } else if (line.rfind("vn ", 0) == 0) {
+                glm::vec3 v(0); sscanf(line.c_str() + 3, "%f %f %f", &v.x, &v.y, &v.z); nrm.push_back(v);
+            } else if (line.rfind("vt ", 0) == 0) {
+                glm::vec2 t(0); sscanf(line.c_str() + 3, "%f %f", &t.x, &t.y); uvs.push_back(t);
+            } else if (line.rfind("f ", 0) == 0) {
+                std::vector<uint32_t> poly;
+                std::vector<char> noNrm;
+                std::istringstream iss(line.substr(2));
+                std::string tok;
+                while (iss >> tok) {
+                    int vi = 0, ti = 0, ni = 0; splitIdx(tok, vi, ti, ni);
+                    uint32_t p = (uint32_t)(vi > 0 ? vi - 1 : (int)pos.size() + vi);
+                    uint32_t tn = (uint32_t)(ti > 0 ? ti - 1 : 0), tn2 = (uint32_t)(ni > 0 ? ni - 1 : 0);
+                    glm::vec3 P = p < pos.size() ? pos[p] : glm::vec3(0);
+                    bool hasN = tn2 < nrm.size();
+                    glm::vec3 N = hasN ? nrm[tn2] : glm::vec3(0, 1, 0);
+                    // vt в OBJ — начало координат внизу, у движка (stb) — вверху
+                    glm::vec2 T = tn < uvs.size() ? glm::vec2(uvs[tn].x, 1.0f - uvs[tn].y) : glm::vec2(0);
+                    verts.insert(verts.end(), { P.x, P.y, P.z, N.x, N.y, N.z, T.x, T.y });
+                    poly.push_back((uint32_t)(verts.size() / 8) - 1);
+                    noNrm.push_back(hasN ? 0 : 1);
+                }
+                auto setNormalAt = [&](uint32_t c, const glm::vec3& n) {
+                    verts[c * 8 + 3] = n.x; verts[c * 8 + 4] = n.y; verts[c * 8 + 5] = n.z;
+                };
+                for (size_t i = 2; i < poly.size(); i++) {
+                    uint32_t a = poly[0], b = poly[i - 1], c = poly[i];
+                    idx.insert(idx.end(), { a, b, c });
+                    // каждая вершина веера уникальна (не делится на другие грани) —
+                    // если vn нет, просто пишем нормаль этой грани
+                    if (noNrm[0] || noNrm[i - 1] || noNrm[i]) {
+                        glm::vec3 face = glm::cross(
+                            glm::vec3(verts[b * 8] - verts[a * 8], verts[b * 8 + 1] - verts[a * 8 + 1],
+                                      verts[b * 8 + 2] - verts[a * 8 + 2]),
+                            glm::vec3(verts[c * 8] - verts[a * 8], verts[c * 8 + 1] - verts[a * 8 + 1],
+                                      verts[c * 8 + 2] - verts[a * 8 + 2]));
+                        if (glm::length(face) > 1e-8f) {
+                            face = glm::normalize(face);
+                            if (noNrm[0]) setNormalAt(a, face);
+                            if (noNrm[i - 1]) setNormalAt(b, face);
+                            if (noNrm[i]) setNormalAt(c, face);
+                        }
+                    }
+                }
+            }
+        }
+        if (!idx.empty()) out = MakeMesh3D(verts, idx);
+    }
+    auto res = m_ObjCache.emplace(path, out);
+    return res.first->second;
+}
+
+void Renderer::Setup3D() {
+    auto upload = [&](const Mesh3DData& d, Renderer::Mesh3D& out) { out = MakeMesh3D(d.verts, d.idx); };
+    upload(BuildCube(), m_PrimCube);
+    upload(BuildPlane(), m_PrimPlane);
+    upload(BuildSphere(), m_PrimSphere);
+}
+
+void Renderer::RenderEntities3D(const std::vector<Entity>& entities, Camera* camera) {
+    bool any = false;
+    for (const auto& e : entities) if (e.is3D && e.active) { any = true; break; }
+    if (!any) return;
+
+        glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_TRUE);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    m_Mesh3DShader->Use();
+    m_Mesh3DShader->SetMat4("u_VP", camera->GetViewProjectionMatrix());
+    glm::vec3 ld = glm::length(AstraPrefs::LightDir) > 0.0f ? glm::normalize(AstraPrefs::LightDir) : glm::vec3(0,1,0);
+    m_Mesh3DShader->SetVec3("u_LightDir", ld);
+    m_Mesh3DShader->SetVec3("u_LightColor", AstraPrefs::LightColor);
+    m_Mesh3DShader->SetFloat("u_Ambient", AstraPrefs::Ambient);
+    m_Mesh3DShader->SetInt("u_Texture", 0);
+
+    for (const auto& e : entities) {
+        if (!e.is3D || !e.active) continue;
+        glm::mat4 model(1.0f);
+        model = glm::translate(model, e.pos3);
+        model = glm::rotate(model, glm::radians(e.rot3.x), glm::vec3(1, 0, 0));
+        model = glm::rotate(model, glm::radians(e.rot3.y), glm::vec3(0, 1, 0));
+        model = glm::rotate(model, glm::radians(e.rot3.z), glm::vec3(0, 0, 1));
+        model = glm::scale(model, e.scale3);
+        m_Mesh3DShader->SetMat4("u_Model", model);
+        m_Mesh3DShader->SetVec3("u_Color", e.mesh.color);
+
+        const Mesh3D* mesh = nullptr;
+        switch (e.mesh.type) {
+            case 1: mesh = &m_PrimPlane; break;
+            case 2: mesh = &m_PrimSphere; break;
+            case 3: mesh = &GetObjMesh(e.mesh.meshPath); break;
+            default: mesh = &m_PrimCube; break;
+        }
+        if (!mesh || mesh->indexCount == 0) continue;
+
+        GLuint tex = e.mesh.texturePath.empty() ? m_WhiteTexture : GetTexture(e.mesh.texturePath);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, tex ? tex : m_WhiteTexture);
+        m_Mesh3DShader->SetFloat("u_UseTex", e.mesh.texturePath.empty() ? 0.0f : (tex ? 1.0f : 0.0f));
+        glBindVertexArray(mesh->vao);
+        glDrawElements(GL_TRIANGLES, mesh->indexCount, GL_UNSIGNED_INT, 0);
+    }
+    glBindVertexArray(0);
+    glDisable(GL_DEPTH_TEST);
 }
 
 // ============ TEXTURES ============
@@ -362,7 +620,7 @@ void Renderer::RenderEntities(const std::vector<Entity>& entities, Camera* camer
                      });
     for (const Entity* entityPtr : ordered) {
         const Entity& entity = *entityPtr;
-        if (!entity.active) continue;
+        if (!entity.active || entity.is3D) continue;
 
         glm::mat4 model = Transforms::WorldMatrix(entities, entity);
         glm::mat4 mvp = camera->GetViewProjectionMatrix() * model;

@@ -15,6 +15,22 @@ public:
     void SetAspectRatio(float aspect) { m_AspectRatio = aspect; }
     float GetAspectRatio() const { return m_AspectRatio; }
 
+    // Орбита в редакторе: взгляд вокруг фокуса (3D-вид)
+    void SetOrbit(const glm::vec3& focus, float yawDeg, float pitchDeg, float dist) {
+        m_Orbit = true; m_OrbitFocus = focus; m_OrbitYaw = yawDeg; m_OrbitPitch = pitchDeg; m_OrbitDist = dist;
+    }
+    void ClearOrbit() { m_Orbit = false; }
+    bool IsOrbit() const { return m_Orbit; }
+    glm::vec3 GetOrbitFocus() const { return m_OrbitFocus; }
+    float GetOrbitYaw() const { return m_OrbitYaw; }
+    float GetOrbitPitch() const { return m_OrbitPitch; }
+    float GetOrbitDist() const { return m_OrbitDist; }
+
+    void SetPerspective(bool on) { m_Perspective = on; }
+    bool IsPerspective() const { return m_Perspective; }
+    void SetFov(float deg) { m_Fov = deg; }
+    float GetFov() const { return m_Fov; }
+
     glm::mat4 GetViewMatrix() const;
     glm::mat4 GetProjectionMatrix() const;
     glm::mat4 GetViewProjectionMatrix() const;
@@ -30,4 +46,9 @@ private:
     float m_Zoom;
     float m_AspectRatio;
     float m_ViewHeight = 1080.0f;
+    bool m_Perspective = false;
+    float m_Fov = 50.0f;
+    bool m_Orbit = false;
+    glm::vec3 m_OrbitFocus = glm::vec3(0.0f);
+    float m_OrbitYaw = 40.0f, m_OrbitPitch = 28.0f, m_OrbitDist = 1500.0f;
 };

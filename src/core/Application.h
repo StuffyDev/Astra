@@ -49,6 +49,9 @@ private:
 
     float m_PhysicsAccumulator = 0.0f;
     bool m_ScenePanning = false;
+    bool m_OrbitInit = false;
+    glm::vec3 m_OrbitFocus = glm::vec3(0.0f);
+    float m_OrbitYaw = 40.0f, m_OrbitPitch = 28.0f, m_OrbitDist = 1500.0f;
     std::unordered_set<uint32_t> m_AudioStarted; // playOnAwake уже запущен (в этом Play)
 
     AppOptions m_Options;

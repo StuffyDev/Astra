@@ -23,6 +23,7 @@ void Scene::Render(Camera* camera, SceneManager* sceneManager, int width, int he
 
     m_Renderer->BeginScene(camera, width, height);
     m_Renderer->RenderGrid(camera);
+    m_Renderer->RenderEntities3D(sceneManager->GetEntities(), camera);
     m_Renderer->RenderTilemaps(sceneManager->GetEntities(), camera);
     m_Renderer->RenderEntities(sceneManager->GetEntities(), camera);
     m_Renderer->RenderParticles(sceneManager->GetEntities(), camera);
@@ -58,6 +59,7 @@ void Scene::RenderGameView(Camera* gameCamera, SceneManager* sceneManager, int w
     m_GameFB->Bind();
 
     m_Renderer->BeginScene(gameCamera, width, height);
+    m_Renderer->RenderEntities3D(sceneManager->GetEntities(), gameCamera);
     m_Renderer->RenderTilemaps(sceneManager->GetEntities(), gameCamera);
     m_Renderer->RenderEntities(sceneManager->GetEntities(), gameCamera);
     m_Renderer->RenderParticles(sceneManager->GetEntities(), gameCamera);

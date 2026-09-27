@@ -10,4 +10,8 @@ struct AstraPrefs {
     static inline float SnapDegrees = 15.0f; // шаг снапа вращения, °
     static inline bool ShowColliders = true; // отрисовка коллайдеров в Scene
     static inline bool LightTheme = false;   // светлая тема редактора
+    // 3D-освещение: направление солнца (нормализуется при использовании), цвет, ambient
+    static inline glm::vec3 LightDir = glm::vec3(-0.4f, 0.7f, 0.5f);
+    static inline glm::vec3 LightColor = glm::vec3(1.0f, 0.98f, 0.94f);
+    static inline float Ambient = 0.25f;
 };

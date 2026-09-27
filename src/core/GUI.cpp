@@ -222,6 +222,16 @@ static uint64_t ComputeSignatureFor(const std::vector<Entity>& ents) {
         FnvStr(h, e.name);
         FnvStr(h, e.prefabSource);
         FnvUpdate(h, &e.transform, sizeof(e.transform));
+        FnvUpdate(h, &e.is3D, sizeof(e.is3D));
+        if (e.is3D) {
+            FnvUpdate(h, &e.pos3, sizeof(e.pos3));
+            FnvUpdate(h, &e.rot3, sizeof(e.rot3));
+            FnvUpdate(h, &e.scale3, sizeof(e.scale3));
+            FnvUpdate(h, &e.mesh.type, sizeof(int));
+            FnvStr(h, e.mesh.meshPath);
+            FnvStr(h, e.mesh.texturePath);
+            FnvUpdate(h, &e.mesh.color, sizeof(e.mesh.color));
+        }
         FnvUpdate(h, &e.hasRigidbody, sizeof(e.hasRigidbody));
         FnvUpdate(h, &e.hasCollider, sizeof(e.hasCollider));
         FnvUpdate(h, &e.hasAudio, sizeof(e.hasAudio));
@@ -357,6 +367,9 @@ void GUI::LoadUserSettings() {
         else if (k == "master_volume") Audio::SetMasterVolume((float)num());
         else if (k == "muted") Audio::SetMuted(num() != 0);
         else if (k == "time_scale") Scripting::SetDefaultTimeScale((float)num());
+        else if (k == "light_dir") sscanf(v.c_str(), "%f %f %f", &AstraPrefs::LightDir.x, &AstraPrefs::LightDir.y, &AstraPrefs::LightDir.z);
+        else if (k == "light_color") sscanf(v.c_str(), "%f %f %f", &AstraPrefs::LightColor.x, &AstraPrefs::LightColor.y, &AstraPrefs::LightColor.z);
+        else if (k == "ambient") AstraPrefs::Ambient = (float)num();
     }
 }
 
@@ -376,7 +389,10 @@ void GUI::SaveUserSettings() {
       << "gravity=" << Physics::Gravity.x << " " << Physics::Gravity.y << "\n"
       << "master_volume=" << Audio::MasterVolume() << "\n"
       << "muted=" << (Audio::IsMuted() ? 1 : 0) << "\n"
-      << "time_scale=" << Scripting::DefaultTimeScale() << "\n";
+      << "time_scale=" << Scripting::DefaultTimeScale() << "\n"
+      << "light_dir=" << AstraPrefs::LightDir.x << " " << AstraPrefs::LightDir.y << " " << AstraPrefs::LightDir.z << "\n"
+      << "light_color=" << AstraPrefs::LightColor.x << " " << AstraPrefs::LightColor.y << " " << AstraPrefs::LightColor.z << "\n"
+      << "ambient=" << AstraPrefs::Ambient << "\n";
 }
 
 void GUI::ApplyTheme() {
@@ -592,6 +608,8 @@ void GUI::UpdateGameCamera(SceneManager* sceneManager) {
         pos += Scripting::ShakeOffset();
         m_GameCamera->SetPosition(pos);
         m_GameCamera->SetZoom(chosen->camera.zoom);
+        m_GameCamera->SetPerspective(chosen->camera.perspective);
+        m_GameCamera->SetFov(chosen->camera.fov);
         m_GameCamera->SetAspectRatio(m_GameSize.x / m_GameSize.y);
     }
 }
@@ -985,6 +1003,25 @@ void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
                 cam.camera.mainCamera = !anyMain;
                 sceneManager->AddEntity(cam);
             }
+            if (ImGui::BeginMenu("Create 3D")) {
+                auto add3D = [&](const char* name, int meshType) {
+                    Entity e;
+                    e.name = name;
+                    e.is3D = true;
+                    e.sprite.type = SpriteType::None;
+                    e.collider.type = ColliderType::None;
+                    e.pos3 = glm::vec3(camera->GetPosition(), 0.0f) + glm::vec3(0, 0, 0);
+                    e.scale3 = glm::vec3(100.0f);
+                    e.mesh.type = meshType;
+                    e.mesh.color = glm::vec3(0.85f, 0.85f, 0.9f);
+                    sceneManager->AddEntity(e);
+                };
+                if (ImGui::MenuItem("Cube")) add3D("Cube", 0);
+                if (ImGui::MenuItem("Plane")) add3D("Plane", 1);
+                if (ImGui::MenuItem("Sphere")) add3D("Sphere", 2);
+                if (ImGui::MenuItem("OBJ Model")) add3D("Model", 3);
+                ImGui::EndMenu();
+            }
             if (ImGui::BeginMenu("Create UI")) {
                 auto addUIEntity = [&](const char* name, UIKind kind, glm::vec2 size) {
                     Entity e;
@@ -1018,6 +1055,7 @@ void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
             if (ImGui::MenuItem("Project", nullptr, m_ShowProject)) { m_ShowProject = !m_ShowProject; m_RebuildDockLayout = true; }
             if (ImGui::MenuItem("Script Editor", nullptr, m_ShowCodeWindow)) m_ShowCodeWindow = !m_ShowCodeWindow;
             if (ImGui::MenuItem("Build Settings", nullptr, m_ShowBuildDialog)) m_ShowBuildDialog = !m_ShowBuildDialog;
+            if (ImGui::MenuItem("3D Mode", nullptr, m_3DEditor)) m_3DEditor = !m_3DEditor;
             ImGui::EndMenu();
         }
 
@@ -1570,9 +1608,33 @@ void GUI::RenderInspector(EditorContext& ctx) {
         }
 
         ImGui::Text("Transform");
-        ImGui::DragFloat2("Position", &selected->transform.position.x, 1.0f);
-        ImGui::DragFloat("Rotation", &selected->transform.rotation, 1.0f);
-        ImGui::DragFloat2("Scale", &selected->transform.scale.x, 1.0f, 0.1f, 10000.0f);
+        if (ImGui::Checkbox("3D Object", &selected->is3D)) {
+            if (selected->is3D) {
+                selected->pos3 = glm::vec3(selected->transform.position, 0.0f);
+                selected->scale3 = glm::vec3(selected->transform.scale, 100.0f);
+            }
+        }
+        if (selected->is3D) {
+            ImGui::DragFloat3("Position 3", &selected->pos3.x, 1.0f);
+            ImGui::DragFloat3("Rotation 3", &selected->rot3.x, 1.0f);
+            ImGui::DragFloat3("Scale 3", &selected->scale3.x, 1.0f, 0.1f);
+            const char* meshTypes[] = { "Cube", "Plane", "Sphere", "OBJ" };
+            int mt = selected->mesh.type;
+            if (ImGui::Combo("Mesh", &mt, meshTypes, 4)) selected->mesh.type = mt;
+            if (selected->mesh.type == 3) {
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(160.0f);
+                ImGui::InputText("##objpath", &selected->mesh.meshPath);
+                ImGui::SameLine();
+                ImGui::TextDisabled("assets/models/*.obj");
+            }
+            ImGui::InputText("Mesh Texture", &selected->mesh.texturePath);
+            ImGui::ColorEdit3("Mesh Color", &selected->mesh.color.x);
+        } else {
+            ImGui::DragFloat2("Position", &selected->transform.position.x, 1.0f);
+            ImGui::DragFloat("Rotation", &selected->transform.rotation, 1.0f);
+            ImGui::DragFloat2("Scale", &selected->transform.scale.x, 1.0f, 0.1f, 10000.0f);
+        }
 
         ImGui::Separator();
         ImGui::Text("Sprite");
@@ -1928,7 +1990,11 @@ void GUI::RenderInspector(EditorContext& ctx) {
         if (selected->hasCamera) {
             CompHeader("Camera", selected->hasCamera);
             ImGui::Checkbox("Main Camera", &selected->camera.mainCamera);
-            ImGui::DragFloat("Zoom", &selected->camera.zoom, 0.01f, 0.1f, 20.0f);
+            ImGui::Checkbox("Perspective (3D)", &selected->camera.perspective);
+            if (selected->camera.perspective)
+                ImGui::DragFloat("Field of View", &selected->camera.fov, 0.5f, 20.0f, 120.0f, "%.0f°");
+            else
+                ImGui::DragFloat("Zoom", &selected->camera.zoom, 0.01f, 0.1f, 20.0f);
             ImGui::DragFloat2("Viewport Offset", &selected->camera.offset.x, 1.0f);
             // Follow: цель = сущность из сцены (не сама камера)
             {
@@ -3068,6 +3134,12 @@ void GUI::RenderSettings(EditorContext& ctx) {
             ImGui::TextDisabled("Undo/Redo: Ctrl+Z / Ctrl+Shift+Z");
         }
 
+        if (ImGui::CollapsingHeader("Lighting (3D)", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::DragFloat3("Sun direction", &AstraPrefs::LightDir.x, 0.02f, -1.0f, 1.0f);
+            ImGui::ColorEdit3("Sun color", &AstraPrefs::LightColor.x);
+            ImGui::SliderFloat("Ambient", &AstraPrefs::Ambient, 0.0f, 1.0f, "%.2f");
+        }
+
         if (ImGui::CollapsingHeader("Time", ImGuiTreeNodeFlags_DefaultOpen)) {
             float ts = Scripting::DefaultTimeScale();
             if (ImGui::SliderFloat("Time scale", &ts, 0.0f, 4.0f, "%.2f"))
@@ -3471,7 +3543,8 @@ static void CollectSceneDeps(const std::string& scenePath, std::set<std::string>
     std::string text = ReadAllBytes(scenePath);
     if (text.empty()) return;
     static const char* keys[] = { "TexturePath: ", "ShaderPath: ", "AnimTexture: ", "SoundPath: ",
-                                  "PrefabSource: ", "TilemapTex: ", "ParticleTex: " };
+                                  "PrefabSource: ", "TilemapTex: ", "ParticleTex: ",
+                                  "MeshPath: ", "MeshTex: " };
     std::istringstream ss(text);
     std::string line;
     while (std::getline(ss, line)) {

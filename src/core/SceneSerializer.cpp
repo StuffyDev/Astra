@@ -20,6 +20,14 @@ void WriteEntity(std::ostream& file, const Entity& e, const std::unordered_map<u
     file << "Pos: " << e.transform.position.x << " " << e.transform.position.y << "\n";
     file << "Rot: " << e.transform.rotation << "\n";
     file << "Scale: " << e.transform.scale.x << " " << e.transform.scale.y << "\n";
+    file << "Is3D: " << (e.is3D ? 1 : 0) << "\n";
+    file << "Pos3: " << e.pos3.x << " " << e.pos3.y << " " << e.pos3.z << "\n";
+    file << "Rot3: " << e.rot3.x << " " << e.rot3.y << " " << e.rot3.z << "\n";
+    file << "Scale3: " << e.scale3.x << " " << e.scale3.y << " " << e.scale3.z << "\n";
+    file << "MeshType: " << e.mesh.type << "\n";
+    file << "MeshPath: " << e.mesh.meshPath << "\n";
+    file << "MeshTex: " << e.mesh.texturePath << "\n";
+    file << "MeshColor: " << e.mesh.color.r << " " << e.mesh.color.g << " " << e.mesh.color.b << "\n";
     file << "SpriteType: " << static_cast<int>(e.sprite.type) << "\n";
     file << "Color: " << e.sprite.color.r << " " << e.sprite.color.g << " " << e.sprite.color.b << "\n";
     file << "TexturePath: " << e.sprite.texturePath << "\n";
@@ -69,6 +77,8 @@ void WriteEntity(std::ostream& file, const Entity& e, const std::unordered_map<u
     file << "HasCamera: " << (e.hasCamera ? 1 : 0) << "\n";
     file << "CameraMain: " << (e.camera.mainCamera ? 1 : 0) << "\n";
     file << "CameraZoom: " << e.camera.zoom << "\n";
+    file << "CamPersp: " << (e.camera.perspective ? 1 : 0) << "\n";
+    file << "CamFov: " << e.camera.fov << "\n";
     file << "CameraOffset: " << e.camera.offset.x << " " << e.camera.offset.y << "\n";
     {
         int fidx = -1;
@@ -233,6 +243,14 @@ bool SceneSerializer::LoadEntities(const std::string& path, std::vector<Entity>&
             else if (key == "Pos:") { iss >> current.transform.position.x >> current.transform.position.y; }
             else if (key == "Rot:") { iss >> current.transform.rotation; }
             else if (key == "Scale:") { iss >> current.transform.scale.x >> current.transform.scale.y; }
+            else if (key == "Is3D:") { int v; iss >> v; current.is3D = v; }
+            else if (key == "Pos3:") { iss >> current.pos3.x >> current.pos3.y >> current.pos3.z; }
+            else if (key == "Rot3:") { iss >> current.rot3.x >> current.rot3.y >> current.rot3.z; }
+            else if (key == "Scale3:") { iss >> current.scale3.x >> current.scale3.y >> current.scale3.z; }
+            else if (key == "MeshType:") { iss >> current.mesh.type; }
+            else if (key == "MeshPath:") { std::getline(iss, current.mesh.meshPath); current.mesh.meshPath = TrimLead(current.mesh.meshPath); }
+            else if (key == "MeshTex:") { std::getline(iss, current.mesh.texturePath); current.mesh.texturePath = TrimLead(current.mesh.texturePath); }
+            else if (key == "MeshColor:") { iss >> current.mesh.color.r >> current.mesh.color.g >> current.mesh.color.b; }
             else if (key == "SpriteType:") { int v; iss >> v; current.sprite.type = static_cast<SpriteType>(v); }
             else if (key == "Color:") { iss >> current.sprite.color.r >> current.sprite.color.g >> current.sprite.color.b; }
             else if (key == "TexturePath:") { std::getline(iss, current.sprite.texturePath); current.sprite.texturePath = TrimLead(current.sprite.texturePath); }
@@ -293,6 +311,8 @@ bool SceneSerializer::LoadEntities(const std::string& path, std::vector<Entity>&
             else if (key == "HasCamera:") { int v; iss >> v; current.hasCamera = v; }
             else if (key == "CameraMain:") { int v; iss >> v; current.camera.mainCamera = v; }
             else if (key == "CameraZoom:") { iss >> current.camera.zoom; }
+            else if (key == "CamPersp:") { int v; iss >> v; current.camera.perspective = v; }
+            else if (key == "CamFov:") { iss >> current.camera.fov; }
             else if (key == "CameraOffset:") { iss >> current.camera.offset.x >> current.camera.offset.y; }
             else if (key == "CameraFollowIndex:") { int v; iss >> v; current.camera.followTargetId = (v >= 0) ? (uint32_t)(v + 1) : 0; current.camera.followTargetId |= 0x80000000u; }
             else if (key == "CameraFollowDamp:") { iss >> current.camera.followDamping; }

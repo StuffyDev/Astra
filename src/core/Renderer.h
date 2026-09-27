@@ -25,6 +25,7 @@ public:
     void RenderGrid(Camera* camera);
     void RenderEntities(const std::vector<Entity>& entities, Camera* camera);
     void RenderTilemaps(const std::vector<Entity>& entities, Camera* camera);
+    void RenderEntities3D(const std::vector<Entity>& entities, Camera* camera);
     void RenderParticles(const std::vector<Entity>& entities, Camera* camera);
     void RenderColliders(const std::vector<Entity>& entities, Camera* camera);
     // mode: 0 = Move, 1 = Rotate, 2 = Scale; activeAxis: -1 = не перетаскивать (0=X,1=Y,2=центр/дуга)
@@ -49,6 +50,13 @@ private:
     std::unique_ptr<Shader> m_CircleShader;
     std::unique_ptr<Shader> m_SpriteTextureShader;
     std::unique_ptr<Shader> m_CircleTextureShader;
+    std::unique_ptr<Shader> m_Mesh3DShader;
+
+    struct Mesh3D { GLuint vao = 0, vbo = 0, ebo = 0; int indexCount = 0; };
+    Mesh3D m_PrimCube, m_PrimPlane, m_PrimSphere;
+    std::unordered_map<std::string, Mesh3D> m_ObjCache;
+    Mesh3D MakeMesh3D(const std::vector<float>& verts, const std::vector<uint32_t>& idx);
+    const Mesh3D& GetObjMesh(const std::string& path);
 
     GLuint m_GridVAO = 0, m_GridVBO = 0;
     GLuint m_QuadVAO = 0, m_QuadVBO = 0, m_QuadEBO = 0;
@@ -69,6 +77,7 @@ private:
     void UpdateGrid(Camera* camera);
     void SetupQuad();
     void SetupBatch();
+    void Setup3D();
     void SetupGizmoBuffers();
     void SetupColliderBuffers();
     void SetupWhiteTexture();
