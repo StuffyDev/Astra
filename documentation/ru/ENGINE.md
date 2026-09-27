@@ -51,6 +51,15 @@ cmake --build build -j$(nproc)
 Навигация в Scene: ПКМ/СКМ — пан, колесо — зум к курсору, F — фокус на выбранном,
 стрелки — пан при фокусе в Scene. ESC — выход из Play в Edit.
 
+**Контекстные меню (ПКМ)**: в Scene — клик без драга открывает меню «Create Empty/Quad here,
+Paste here, Deselect, Focus selection»; в Hierarchy — по строке (Rename, Duplicate, **Move Up/Down**
+для перестановки сиблингов, Detach, Save as Prefab, Revert, Delete) и по пустому месту
+(Create Empty, Paste, Deselect); в Project — по пустому месту (Create Folder/Shader/Script,
+Import File...).
+
+**Script Variables**: движок сканирует `DefineVar("имя", дефолт)` прямо из исходника скрипта —
+ползунки видны в инспекторе сразу, в том числе в Edit-режиме до всякого Play (как [SerializeField]).
+
 ## 4. Сущности и компоненты
 
 Сущность = набор фиксированных компонентов (пока так; чистый ECS — в роадмапе):

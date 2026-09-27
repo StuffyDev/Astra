@@ -41,6 +41,8 @@ Entity* Owner();                 // tragende Entity (kann nullptr werden — imm
 
 // Variablen als »serialisierte Felder« (Analog zu [SerializeField]):
 void  DefineVar(const char* name, float defaultValue); // in Start(); Vorhandenes bleibt unangetastet
+// Die Engine liest DefineVar(...) auch aus dem Quelltext — die Regler erscheinen sofort
+// im Edit-Modus, vor jedem Play.
 float GetVar(const char* name, float fallback = 0) const;
 void  SetVar(const char* name, float value);
 // Jede Variable erscheint als Regler in Inspector ▸ Script Variables,

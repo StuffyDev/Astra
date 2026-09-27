@@ -41,6 +41,7 @@ Entity* Owner();                 // 承载脚本的实体（可能变成 nullptr
 
 // 「可序列化字段」变量（相当于 [SerializeField]）：
 void  DefineVar(const char* name, float defaultValue); // 在 Start() 中调用；已存在的不会改动
+// 引擎也会直接从源码中扫描 DefineVar(...) — 滑块在 Edit 模式下就会立即出现，无需先进入 Play。
 float GetVar(const char* name, float fallback = 0) const;
 void  SetVar(const char* name, float value);
 // 每个变量都会在 Inspector ▸ Script Variables 中以滑块出现，

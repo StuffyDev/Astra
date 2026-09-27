@@ -151,6 +151,10 @@ private:
     bool m_ConsoleFollow = true;
     float m_FpsEma = 60.0f;
 
+    // Scene: контекстное меню по ПКМ-клику (без драга-пана)
+    bool m_SceneCtxRequest = false;
+    glm::vec2 m_SceneCtxWorld;
+
     // Undo: снимок «до пачки правок»; пуш при изменении относительно baseline
     SceneManager::SceneSnapshot m_UndoBaseline;
     uint64_t m_UndoBaselineSig = 0;
@@ -226,6 +230,7 @@ private:
 
     // Буфер обмена для сущностей (Ctrl+C / Ctrl+V в редакторе)
     std::vector<Entity> m_Clipboard;
+    void PasteClipboard(SceneManager* sm);
     bool m_PendingRestart = false;
 };
 

@@ -41,6 +41,8 @@ Entity* Owner();                 // the host entity (may become nullptr — chec
 
 // Variables as "serializable fields" (the equivalent of [SerializeField]):
 void  DefineVar(const char* name, float defaultValue); // in Start(); leaves an existing one untouched
+// The engine also scans DefineVar(...) from the source — sliders appear in the Inspector
+// in Edit mode immediately, before any Play.
 float GetVar(const char* name, float fallback = 0) const;
 void  SetVar(const char* name, float value);
 // Each variable shows up as a slider in Inspector ▸ Script Variables,

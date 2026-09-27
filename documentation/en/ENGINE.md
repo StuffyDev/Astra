@@ -51,6 +51,15 @@ counter (red button — clicking it opens the Console), and the **Move (W) / Rot
 Navigation in Scene: RMB/MMB — pan, wheel — zoom toward the cursor, F — focus on the selection,
 arrow keys — pan while the Scene has focus. ESC — leave Play and return to Edit.
 
+**Context menus (right-click)**: in Scene — a click without drag opens "Create Empty/Quad here,
+Paste here, Deselect, Focus selection"; in Hierarchy — on a row (Rename, Duplicate, **Move Up/Down**
+for sibling reordering, Detach, Save as Prefab, Revert, Delete) and on empty space (Create Empty,
+Paste, Deselect); in Project — on empty space (Create Folder/Shader/Script, Import File...).
+
+**Script Variables**: the engine scans `DefineVar("name", default)` straight from the script
+source — the sliders show up in the Inspector immediately, in Edit mode too, before any Play
+(like [SerializeField]).
+
 ## 4. Entities and Components
 
 An entity = a set of fixed components (for now; a pure ECS is on the roadmap):

@@ -51,6 +51,14 @@ cmake --build build -j$(nproc)
 Scene 中的导航：右键/中键 — 平移，滚轮 — 向光标处缩放，F — 聚焦选中对象，
 方向键 — 焦点在 Scene 窗口时平移视图。ESC — 从 Play 退出到 Edit。
 
+**右键上下文菜单**：在 Scene 中 — 不拖动的单击会打开「Create Empty/Quad here、Paste here、
+Deselect、Focus selection」；在 Hierarchy 中 — 在某一行上（Rename、Duplicate、**Move Up/Down**
+用于调整同级顺序、Detach、Save as Prefab、Revert、Delete）以及在空白处（Create Empty、Paste、
+Deselect）；在 Project 中 — 在空白处（Create Folder/Shader/Script、Import File...）。
+
+**Script Variables**：引擎会直接扫描脚本源码里的 `DefineVar("name", default)` —
+滑块会立刻出现在 Inspector 中，在 Edit 模式下、在任何 Play 之前就能用（相当于 [SerializeField]）。
+
 ## 4. 实体与组件
 
 实体 = 一组固定的组件（目前如此；纯 ECS 在路线图中）：

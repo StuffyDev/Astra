@@ -39,8 +39,10 @@ SCRIPT_ENTRY(Rotate)   // ровно одна фабрика на файл
 Entity* Owner();                 // сущность-носитель (может стать nullptr — проверяйте)
 ::SceneManager* Scene();         // доступ к списку сущностей и выбору
 
-// Переменные-«серелиазуемые поля» (аналог [SerializeField]):
-void  DefineVar(const char* name, float defaultValue); // в Start(); существующее не трогает
+// Переменные-«серелиазуемые поля» (аналог [SerializeField]): объявить в Start(),
+// ползунок появится в Inspector; значение живёт в сцене и доступно в Update()
+// Движок сканирует DefineVar(...) из исходника — ползунки видны в Edit сразу, до Play.
+void  DefineVar(const char* name, float defaultValue); // если уже есть — не трогает
 float GetVar(const char* name, float fallback = 0) const;
 void  SetVar(const char* name, float value);
 // Каждая переменная появляется ползунком в Inspector ▸ Script Variables,

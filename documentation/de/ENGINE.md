@@ -51,6 +51,14 @@ Symbolleiste: **Play / Pause / Stop / Restart**, Status `PLAYING/PAUSED`, Zähle
 Navigation in der Scene: Rechts-/Mittelklick — pannen, Mausrad — Zoom zum Cursor, F — Fokus auf die Auswahl,
 Pfeiltasten — pannen, solange die Scene den Fokus hat. ESC — zurück von Play nach Edit.
 
+**Kontextmenüs (Rechtsklick)**: In der Scene öffnet ein Klick ohne Ziehen das Menü »Create Empty/Quad here,
+Paste here, Deselect, Focus selection«; in der Hierarchy auf einer Zeile (Rename, Duplicate, **Move Up/Down**
+zum Umsortieren der Geschwister, Detach, Save as Prefab, Revert, Delete) und auf leerer Fläche (Create Empty,
+Paste, Deselect); im Project auf leerer Fläche (Create Folder/Shader/Script, Import File...).
+
+**Script Variables**: Die Engine liest `DefineVar("name", default)` direkt aus dem Skriptquelltext —
+die Regler erscheinen sofort im Inspector, also auch im Edit-Modus und vor jedem Play (wie [SerializeField]).
+
 ## 4. Entities und Komponenten
 
 Eine Entity = ein Satz fest vorgegebener Komponenten (im Moment so; ein reines ECS steht auf der Roadmap):

@@ -65,6 +65,30 @@ static bool IsCodeExt(const std::string& ext) {
            ext == ".vert" || ext == ".frag" || ext == ".scene" || ext == ".prefab" || ext == ".md";
 }
 
+// Скан DefineVar("name", default) из исходника скрипта — чтобы ползунки были видно
+// и в Edit-режиме, до первого запуска Start() (как [SerializeField] в Unity)
+static void DiscoverScriptVars(const std::string& path,
+                               std::vector<std::pair<std::string, float>>& out) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f.is_open()) return;
+    std::stringstream ss;
+    ss << f.rdbuf();
+    const std::string src = ss.str();
+    const std::string key = "DefineVar(";
+    size_t pos = 0;
+    while ((pos = src.find(key, pos)) != std::string::npos) {
+        size_t q1 = src.find('"', pos);
+        size_t q2 = (q1 == std::string::npos) ? std::string::npos : src.find('"', q1 + 1);
+        if (q2 == std::string::npos) break;
+        std::string name = src.substr(q1 + 1, q2 - q1 - 1);
+        float def = 0.0f;
+        size_t comma = src.find(',', q2);
+        if (comma != std::string::npos) def = std::strtof(src.c_str() + comma + 1, nullptr);
+        if (!name.empty()) out.emplace_back(std::move(name), def);
+        pos = q2 + 1;
+    }
+}
+
 static const char* AssetIcon(const std::string& ext) {
     if (IsImageExt(ext)) return "[img]";
     if (ext == ".vert" || ext == ".frag") return "[shd]";
@@ -521,21 +545,7 @@ void GUI::HandleHotkeys(EditorContext& ctx) {
         return;
     }
     if (ctrl && in.WasKeyPressed(GLFW_KEY_V)) {
-        if (sel >= 0 || !m_Clipboard.empty()) {
-            if (!m_Clipboard.empty()) {
-                std::vector<Entity> protos = m_Clipboard;
-                std::unordered_map<uint32_t, uint32_t> remap;
-                uint32_t t = 1;
-                for (auto& e : protos) remap[e.id] = t++;
-                for (auto& e : protos) {
-                    uint32_t oldParent = e.parentId;
-                    e.id = remap[e.id];
-                    e.parentId = remap.count(oldParent) ? remap[oldParent] : 0;
-                }
-                int idx = sm->InstantiateProtos(protos, glm::vec2(40.0f, -40.0f));
-                if (idx >= 0) sm->SetSelectedEntity(idx);
-            }
-        }
+        PasteClipboard(sm);
         return;
     }
     if (ctrl && (in.WasKeyPressed(GLFW_KEY_UP) || in.WasKeyPressed(GLFW_KEY_DOWN))) {
@@ -583,6 +593,21 @@ void GUI::HandleHotkeys(EditorContext& ctx) {
         if (in.WasKeyPressed(GLFW_KEY_R)) ctx.scene->SetGizmoMode(2);
         if (in.WasKeyPressed(GLFW_KEY_Q)) ctx.scene->SetGizmoMode(3);
     }
+}
+
+void GUI::PasteClipboard(SceneManager* sm) {
+    if (m_Clipboard.empty()) return;
+    std::vector<Entity> protos = m_Clipboard;
+    std::unordered_map<uint32_t, uint32_t> remap;
+    uint32_t t = 1;
+    for (auto& e : protos) remap[e.id] = t++;
+    for (auto& e : protos) {
+        uint32_t oldParent = e.parentId;
+        e.id = remap[e.id];
+        e.parentId = remap.count(oldParent) ? remap[oldParent] : 0;
+    }
+    int idx = sm->InstantiateProtos(protos, glm::vec2(40.0f, -40.0f));
+    if (idx >= 0) sm->SetSelectedEntity(idx);
 }
 
 void GUI::UpdateWindowTitle(EditorContext& ctx) {
@@ -895,6 +920,57 @@ void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
                 }
             }
 
+            // ПКМ-клик без смещения (>6px = пан) — контекстное меню в точке мира
+            {
+                static ImVec2 rmbDown;
+                static bool rmbHeld = false, rmbDragged = false;
+                if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+                    rmbDown = ImGui::GetMousePos();
+                    rmbHeld = true;
+                    rmbDragged = false;
+                }
+                if (rmbHeld && ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+                    ImVec2 mp = ImGui::GetMousePos();
+                    if (std::fabs(mp.x - rmbDown.x) + std::fabs(mp.y - rmbDown.y) > 6.0f) rmbDragged = true;
+                }
+                if (rmbHeld && ImGui::IsMouseReleased(ImGuiMouseButton_Right)) {
+                    rmbHeld = false;
+                    if (!rmbDragged && ImGui::IsWindowHovered()) {
+                        m_SceneCtxRequest = true;
+                        m_SceneCtxWorld = camera->ScreenToWorld(m_SceneMousePos, m_SceneSize.x, m_SceneSize.y);
+                    }
+                }
+            }
+            if (m_SceneCtxRequest) { ImGui::OpenPopup("SceneCtx"); m_SceneCtxRequest = false; }
+            if (ImGui::BeginPopup("SceneCtx")) {
+                m_PopupOpen = true;
+                if (ImGui::MenuItem("Create Empty here")) {
+                    Entity e; e.name = "Empty"; e.sprite.type = SpriteType::None;
+                    e.collider.type = ColliderType::None;
+                    e.transform.position = m_SceneCtxWorld;
+                    sceneManager->AddEntity(e);
+                }
+                if (ImGui::MenuItem("Create Quad here")) {
+                    Entity e; e.name = "Quad"; e.sprite.type = SpriteType::Quad;
+                    e.sprite.color = glm::vec3(1.0f);
+                    e.collider.type = ColliderType::Box; e.collider.size = glm::vec2(50.0f, 50.0f);
+                    e.transform.scale = glm::vec2(100.0f, 100.0f);
+                    e.transform.position = m_SceneCtxWorld;
+                    sceneManager->AddEntity(e);
+                }
+                if (!m_Clipboard.empty() && ImGui::MenuItem("Paste here", "Ctrl+V")) {
+                    PasteClipboard(sceneManager);
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Deselect")) sceneManager->SetSelectedEntity(-1);
+                if (ImGui::MenuItem("Focus selection", "F")) {
+                    int s = sceneManager->GetSelectedEntity();
+                    if (s >= 0) camera->SetPosition(Transforms::WorldPosition(
+                        sceneManager->GetEntities(), sceneManager->GetEntities()[s]));
+                }
+                ImGui::EndPopup();
+            }
+
             // Дроп ассета прямо в Scene: картинка — на объект под курсором (или создать спрайт),
             // префаб — инстанцируется в точку дропа
             if (ImGui::BeginDragDropTarget()) {
@@ -1053,6 +1129,21 @@ void GUI::RenderHierarchy(EditorContext& ctx) {
         ImGui::EndDragDropTarget();
     }
 
+    // ПКМ по пустому месту: создать/вставить/снять выделение
+    if (ImGui::BeginPopupContextWindow("##hierEmptyCtx",
+        ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
+        m_PopupOpen = true;
+        if (ImGui::MenuItem("Create Empty")) {
+            Entity e; e.name = "Empty"; e.sprite.type = SpriteType::None;
+            e.collider.type = ColliderType::None;
+            e.transform.position = ctx.camera->GetPosition();
+            sceneManager->AddEntity(e);
+        }
+        if (!m_Clipboard.empty() && ImGui::MenuItem("Paste", "Ctrl+V")) PasteClipboard(sceneManager);
+        if (ImGui::MenuItem("Deselect")) sceneManager->SetSelectedEntity(-1);
+        ImGui::EndPopup();
+    }
+
     ImGui::End();
 }
 
@@ -1126,6 +1217,23 @@ void GUI::RenderEntityNode(EditorContext& ctx, size_t index,
 
     if (ImGui::BeginPopup("HierarchyContext")) {
         m_PopupOpen = true;
+        // Перестановка среди сиблингов (B выше A) — сосед в списке детей того же родителя
+        {
+            uint32_t pid = entity.parentId;
+            auto cit = (pid == 0) ? children.end() : children.find(pid);
+            std::vector<size_t> sibs;
+            if (cit != children.end()) sibs = cit->second;
+            else { for (size_t i = 0; i < entities.size(); i++) if (entities[i].parentId == 0) sibs.push_back(i); }
+            int pos = -1;
+            for (size_t k = 0; k < sibs.size(); k++) if (sibs[k] == index) { pos = static_cast<int>(k); break; }
+            if (pos > 0 && ImGui::MenuItem("Move Up", "Ctrl+Up")) {
+                sceneManager->MoveEntity(entity.id, entities[sibs[pos - 1]].id, -1);
+            }
+            if (pos >= 0 && pos + 1 < static_cast<int>(sibs.size()) && ImGui::MenuItem("Move Down", "Ctrl+Down")) {
+                sceneManager->MoveEntity(entity.id, entities[sibs[pos + 1]].id, +1);
+            }
+            if (pos > 0 || pos + 1 < static_cast<int>(sibs.size())) ImGui::Separator();
+        }
         if (ImGui::MenuItem("Rename", "F2")) {
             m_ShowRenameDialog = true;
             m_RenameIndex = static_cast<int>(index);
@@ -1435,17 +1543,25 @@ void GUI::RenderInspector(EditorContext& ctx) {
             ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.2f, 1.0f), "Файл не найден: %s", selected->scriptPath.c_str());
         ImGui::TextDisabled("Компилируется при входе в Play; API: Script, Owner(), Scene(), SCRIPT_ENTRY(Класс)");
 
-        // --- Серелиазуемые переменные скрипта (как [SerializeField] в Unity) ---
-        if (!selected->vars.empty()) {
-            ImGui::Separator();
-            ImGui::Text("Script Variables");
-            int varIdx = 0;
-            for (auto& [varName, varValue] : selected->vars) {
-                std::string label = varName + "##var" + std::to_string(varIdx++);
-                ImGui::DragFloat(label.c_str(), &varValue, 0.01f);
+        // --- Переменные скрипта: скан DefineVar из исходника (работает в Edit, как Unity) ---
+        {
+            std::vector<std::pair<std::string, float>> discovered;
+            if (!selected->scriptPath.empty()) DiscoverScriptVars(selected->scriptPath, discovered);
+            std::map<std::string, float> merged;
+            for (auto& [n, d] : discovered) merged[n] = d;
+            for (auto& [n, v] : selected->vars) merged[n] = v; // значение из сцены важнее дефолта
+            if (!merged.empty()) {
+                ImGui::Separator();
+                ImGui::Text("Script Variables");
+                int varIdx = 0;
+                for (auto& [name, def] : merged) {
+                    if (!selected->vars.count(name)) selected->vars[name] = def; // материализуем дефолт
+                    float& val = selected->vars[name];
+                    std::string label = name + "##svar" + std::to_string(varIdx++);
+                    ImGui::DragFloat(label.c_str(), &val, 0.01f);
+                }
+                ImGui::TextDisabled("Из DefineVar(\"имя\", дефолт) в скрипте; хранятся в сцене.");
             }
-            ImGui::TextDisabled("Появляются из DefineVar(\"имя\", значение) в Start().\n"
-                                "Меняй на лету в Play — скрипт читает GetVar() каждый кадр.");
         }
     } else {
         ImGui::TextDisabled("Select an object to inspect");
@@ -1821,6 +1937,68 @@ void GUI::RenderProject(EditorContext& ctx) {
     }
 
     m_ProjectPanelFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+    // ПКМ по пустому месту Assets: создать/импортировать
+    if (ImGui::BeginPopupContextWindow("##projEmptyCtx",
+        ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
+        m_PopupOpen = true;
+        if (ImGui::BeginMenu("Create")) {
+            if (ImGui::MenuItem("Folder")) {
+                std::error_code ec;
+                fs::path created = UniquePath(m_BrowsePath, "New Folder", "");
+                fs::create_directories(created, ec);
+                if (!ec) m_SelectedAsset = created.string();
+            }
+            if (ImGui::MenuItem("Shader (frag)")) {
+                std::error_code ec;
+                fs::path frag = UniquePath(m_BrowsePath == "assets" ? fs::path("assets/shaders") : fs::path(m_BrowsePath),
+                                           "NewShader", ".frag");
+                fs::create_directories(frag.parent_path(), ec);
+                std::ofstream ff(frag);
+                if (ff.is_open()) {
+                    ff << "// API движка: fragColor, u_Color, u_Texture, u_Time, u_Params, u_PColor, v_UV\n"
+                          "void main() {\n"
+                          "    fragColor = vec4(u_Color, 1.0) * texture(u_Texture, v_UV);\n"
+                          "}\n";
+                    ff.close();
+                    m_SelectedAsset = frag.string();
+                }
+            }
+            if (ImGui::MenuItem("Script (.cpp)")) {
+                std::error_code ec;
+                fs::path cpp = UniquePath(m_BrowsePath == "assets" ? fs::path("assets/scripts") : fs::path(m_BrowsePath),
+                                          "NewScript", ".cpp");
+                fs::create_directories(cpp.parent_path(), ec);
+                std::string cls = cpp.stem().string();
+                char upper = cls.empty() ? 'S' : static_cast<char>(std::toupper(static_cast<unsigned char>(cls[0])));
+                cls = upper + cls.substr(1);
+                std::ofstream cf(cpp);
+                if (cf.is_open()) {
+                    cf << "// Движок сам подключает ScriptAPI и базовые заголовки — инклюды не нужны.\n"
+                          "class " << cls << " : public Script {\n"
+                          "public:\n"
+                          "    void Start() override { DefineVar(\"speed\", 90.0f); }\n"
+                          "    void Update(float dt) override {\n"
+                          "        Entity* e = Owner();\n"
+                          "        if (e) e->transform.rotation += GetVar(\"speed\") * dt;\n"
+                          "    }\n"
+                          "};\n\n"
+                          "SCRIPT_ENTRY(" << cls << ")\n";
+                    m_SelectedAsset = cpp.string();
+                    OpenCodeFile(cpp.string());
+                }
+            }
+            ImGui::EndMenu();
+        }
+        if (ImGui::MenuItem("Import File...")) {
+            m_FolderPickerTarget = 3;
+            m_FolderPickerPickFile = true;
+            m_FolderPickerPath = GuiHomeDir().string();
+        }
+        if (!m_Clipboard.empty() && ImGui::MenuItem("Paste Entity", "Ctrl+V"))
+            PasteClipboard(ctx.sceneManager);
+        ImGui::EndPopup();
+    }
+
     ImGui::End();
 }
 
