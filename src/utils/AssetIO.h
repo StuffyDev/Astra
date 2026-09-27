@@ -10,6 +10,8 @@ namespace AssetIO {
     // Весь файл в память; если заголовок AENC — расшифровывает на лету
     std::string ReadAll(const std::string& path);
     bool ReadBytes(const std::string& path, std::vector<unsigned char>& out);
+    // То же, но списком (пусто — файла нет или он пуст)
+    std::vector<unsigned char> ReadBytes(const std::string& path);
     // Запись с шифрованием (Build Game)
     bool WriteEncrypted(const std::string& path, const std::string& data);
     std::string Encrypt(const std::string& plain);

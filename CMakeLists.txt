@@ -101,6 +101,8 @@ add_library(AstraEngine SHARED
     src/core/Audio.cpp
     src/utils/ConsoleLog.cpp
     src/utils/AssetIO.cpp
+    src/utils/Json.cpp
+    src/utils/Gltf.cpp
     src/ecs/SceneManager.cpp
     src/ecs/Physics.cpp
     src/ecs/Physics3D.cpp

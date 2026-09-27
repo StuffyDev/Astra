@@ -4,6 +4,7 @@
 #include "core/Prefs.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include "utils/AssetIO.h"
+#include "utils/Gltf.h"
 #include "ecs/Entity.h"
 #include "ecs/Physics.h"
 #include "ecs/Physics3D.h"
@@ -463,6 +464,19 @@ const Renderer::Mesh3D& Renderer::GetObjMesh(const std::string& path) {
     return res.first->second;
 }
 
+const Renderer::Mesh3D& Renderer::GetGltfMesh(const std::string& path) {
+    static Mesh3D empty;
+    auto it = m_GltfCache.find(path);
+    if (it != m_GltfCache.end()) return it->second;
+    Mesh3D out;
+    Gltf::Data d = Gltf::Load(path);
+    if (d.ok && !d.idx.empty()) out = MakeMesh3D(d.verts, d.idx);
+    else if (!d.error.empty())
+        std::cerr << "[glTF] " << path << ": " << d.error << "\n";
+    auto res = m_GltfCache.emplace(path, out);
+    return res.first->second;
+}
+
 void Renderer::Setup3D() {
     auto upload = [&](const Mesh3DData& d, Renderer::Mesh3D& out) { out = MakeMesh3D(d.verts, d.idx); };
     upload(BuildCube(), m_PrimCube);
@@ -492,13 +506,20 @@ void Renderer::RenderLines3D(const std::vector<float>& xyz, const glm::vec3& col
     glBindVertexArray(0);
 }
 
-bool Renderer::GetMeshBounds(int meshType, const std::string& objPath, glm::vec3& center, glm::vec3& half) {
+bool Renderer::GetMeshBounds(int meshType, const std::string& modelPath, glm::vec3& center, glm::vec3& half) {
     center = glm::vec3(0.0f);
     switch (meshType) {
         case 1: half = glm::vec3(0.5f, 0.02f, 0.5f); return true;  // плоскость — почти без толщины
         case 2: half = glm::vec3(0.5f); return true;
         case 3: {
-            const Mesh3D& m = GetObjMesh(objPath);
+            const Mesh3D& m = GetObjMesh(modelPath);
+            if (m.indexCount == 0) return false;
+            center = (m.boundsMin + m.boundsMax) * 0.5f;
+            half = (m.boundsMax - m.boundsMin) * 0.5f;
+            return true;
+        }
+        case 4: {
+            const Mesh3D& m = GetGltfMesh(modelPath);
             if (m.indexCount == 0) return false;
             center = (m.boundsMin + m.boundsMax) * 0.5f;
             half = (m.boundsMax - m.boundsMin) * 0.5f;
@@ -641,6 +662,7 @@ const Renderer::Mesh3D* Renderer::MeshForEntity(const Entity& e) {
         case 1: return &m_PrimPlane;
         case 2: return &m_PrimSphere;
         case 3: return &GetObjMesh(e.mesh.meshPath);
+        case 4: return &GetGltfMesh(e.mesh.meshPath);
         default: return &m_PrimCube;
     }
 }

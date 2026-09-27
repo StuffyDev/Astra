@@ -248,8 +248,19 @@ Tile скрыт. 2D-сцены не изменились вообще.
 **Создание**: `GameObject ▸ Create 3D ▸ Cube / Plane / Sphere / OBJ Model` (создание 3D-объекта
 в 2D-сцене автоматически переключает сцену в 3D). В инспекторе у любой сущности есть чекбокс
 **3D Object**: Position 3 / Rotation 3 (в градусах, порядок X→Y→Z) / Scale 3, **Mesh**
-(Cube/Plane/Sphere/OBJ), путь `.obj`, Mesh Texture, Mesh Color. `transform.position/scale`
-у 3D-сущности остаются — они нужны для 2D-наследия, позиция в 3D берётся из `pos3`.
+(Cube / Plane / Sphere / **OBJ** / **glTF**), путь к модели, Mesh Texture, Mesh Color.
+`transform.position/scale` у 3D-сущности остаются — они нужны для 2D-наследия, позиция в 3D
+берётся из `pos3`.
+
+**Модели: glTF и OBJ.** glTF 2.0 (`Mesh` = glTF) — предпочтительный формат: читается и `.glb`
+(всё в одном файле), и `.gltf` (JSON + внешний `.bin` или `data:`-URI base64). Поддерживаются
+первый mesh со всеми примитивами, `POSITION`/`NORMAL`/`TEXCOORD_0`, индексы u32/u16/u8,
+interleaved `byteStride`, `normalized`-атрибуты; если нормалей в файле нет — движок считает
+плоские нормали по граням. Путь к текстуре из `baseColorTexture` показывается в инспекторе как
+подсказка — картинку положите в `Mesh Texture` сам. Узловые трансформации, скин, анимации,
+PBR-металличность и Draco не поддерживаются (в планах). OBJ (`Mesh` = OBJ) остаётся: v/vt/vn,
+полигоны → треугольники, нормаль грани если нет `vn`.
+Внешние `.bin` у `.gltf` попадают в зависимости сцены и шифруются при сборке так же, как сама модель.
 
 **Свет** — лабертовский с тенью: `diffuse = max(dot(n, sun), 0) * shadow + Ambient`,
 направление/цвет солнца и ambient задаются в Edit ▸ Settings ▸ Lighting (3D) и сохраняются
@@ -269,8 +280,10 @@ Follow/Level Bounds — 2D-механики, в 3D-ветке они не уча
 мешами, поэтому кубы не «просвечивают» друг друга.
 
 **Сериализация**: строка `Scene3D: 0|1` в заголовке файла + ключи сущностей `Is3D`, `Pos3`, `Rot3`,
-`Scale3`, `MeshType` (0=Cube, 1=Plane, 2=Sphere, 3=OBJ), `MeshPath`, `MeshTex`, `MeshColor`,
-`CamPersp`, `CamFov`. Старые файлы грузятся как раньше (`Is3D: 0`, `Scene3D: 0`).
+`Scale3`, `MeshType` (0=Cube, 1=Plane, 2=Sphere, 3=OBJ, 4=glTF), `MeshPath`, `MeshTex`,
+`MeshColor`, `CamPersp`, `CamFov`, а также 3D-физика: `HasRigidbody3D`, `Rb3Kinematic`,
+`Rb3Velocity`, `Rb3Mass`, `Rb3Drag`, `Rb3Gravity`, `HasCollider3D`, `Col3Type`, `Col3Trigger`,
+`Col3Center`, `Col3Half`, `Col3Radius`. Старые файлы грузятся как раньше (`Is3D: 0`, `Scene3D: 0`).
 
 **Сборка игры**: `.obj` из `MeshPath` и картинка из `MeshTex` попадают в зависимости сцены,
 то есть копируются/шифруются так же, как текстуры и звуки (раздел 11).
@@ -278,6 +291,14 @@ Follow/Level Bounds — 2D-механики, в 3D-ветке они не уча
 **Пример**: `assets/scenes/3d_demo.scene` — пол, три куба и сфера под перспективной камерой
 с тенями (открыть двойным кликом в Project).
 
-**Дальше по плану 3D**: 3D-физика (Rigidbody/Collider для трёх осей), скелетная анимация,
-glTF вместо OBJ, Mesh Renderer отдельным компонентом от Sprite, ортографический режим вида,
-освещение несколькими источниками.
+**3D-физика**: компоненты **Rigidbody (3D)** и **Collider (3D)** добавляются кнопкой
+`+ Add Component` (только у 3D-сущностей). Гравитация — `-Y` (настраивается в Edit ▸ Settings ▸
+Physics  Gravity (3D), в м/с², как в 2D), коллайдеры — Box и Sphere; размеры задаются в единицах
+меша (`Half Size 0.5` + `Scale 3 = 100` = куб 100×100×100), поворот учитывается как габарит
+повёрнутого короба (AABB), масштаб — через `Scale 3`. `Is Kinematic` — тело ведёт скрипт/родитель,
+`Is Trigger` — без расталкивания, события те же: `OnTriggerEnter/Exit`, `OnCollisionEnter`.
+Каркас коллайдеров виден в Scene (зелёный — твёрдый, голубой — триггер).
+Дочерние тела не интегрируются — их двигает родитель.
+
+**Дальше по плану 3D**: скелетная анимация и glTF-анимации, Mesh Renderer отдельным компонентом
+от Sprite, ортографический режим вида, несколько источников света, PBR-материалы вместо ламберта.

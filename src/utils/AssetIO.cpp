@@ -65,6 +65,12 @@ bool ReadBytes(const std::string& path, std::vector<unsigned char>& out) {
     return true;
 }
 
+std::vector<unsigned char> ReadBytes(const std::string& path) {
+    std::vector<unsigned char> out;
+    ReadBytes(path, out);
+    return out;
+}
+
 std::string ReadAll(const std::string& path) {
     std::vector<unsigned char> bytes;
     if (!ReadBytes(path, bytes)) return std::string();

@@ -11,6 +11,7 @@
 #include "core/Scripting.h"
 #include "utils/ConsoleLog.h"
 #include "utils/AssetIO.h"
+#include "utils/Gltf.h"
 #include "ecs/SceneManager.h"
 #include "ecs/Entity.h"
 #include "ecs/Transforms.h"
@@ -1718,15 +1719,15 @@ void GUI::RenderInspector(EditorContext& ctx) {
             ImGui::DragFloat3("Position 3", &selected->pos3.x, 1.0f);
             ImGui::DragFloat3("Rotation 3", &selected->rot3.x, 1.0f);
             ImGui::DragFloat3("Scale 3", &selected->scale3.x, 1.0f, 0.1f);
-            const char* meshTypes[] = { "Cube", "Plane", "Sphere", "OBJ" };
+            const char* meshTypes[] = { "Cube", "Plane", "Sphere", "OBJ", "glTF" };
             int mt = selected->mesh.type;
-            if (ImGui::Combo("Mesh", &mt, meshTypes, 4)) selected->mesh.type = mt;
-            if (selected->mesh.type == 3) {
+            if (ImGui::Combo("Mesh", &mt, meshTypes, 5)) selected->mesh.type = mt;
+            if (selected->mesh.type >= 3) {
                 ImGui::SameLine();
                 ImGui::SetNextItemWidth(160.0f);
                 ImGui::InputText("##objpath", &selected->mesh.meshPath);
                 ImGui::SameLine();
-                ImGui::TextDisabled("assets/models/*.obj");
+                ImGui::TextDisabled("assets/models/*.obj|*.glb|*.gltf");
             }
             ImGui::InputText("Mesh Texture", &selected->mesh.texturePath);
             ImGui::ColorEdit3("Mesh Color", &selected->mesh.color.x);
@@ -3707,7 +3708,14 @@ static void CollectSceneDeps(const std::string& scenePath, std::set<std::string>
             if (v.empty()) continue;
             std::error_code ec;
             if (fs::is_regular_file(v, ec)) {
-                if (!out.count(v)) { out.insert(v); if (v.size() > 7 && v.compare(v.size()-7, 7, ".prefab") == 0) CollectSceneDeps(v, out, depth+1); }
+                if (!out.count(v)) {
+                    out.insert(v);
+                    if (v.size() > 7 && v.compare(v.size()-7, 7, ".prefab") == 0) CollectSceneDeps(v, out, depth+1);
+                    // .gltf тянет за собой внешние .bin — берём весь список
+                    if (v.size() > 6 && v.compare(v.size()-6, 6, ".gltf") == 0)
+                        for (const auto& extra : Gltf::CollectFiles(v))
+                            if (fs::is_regular_file(extra, ec)) out.insert(extra);
+                }
             } else if (fs::is_regular_file(v + ".frag", ec)) {
                 if (out.insert(v + ".frag").second) {}
                 if (fs::is_regular_file(v + ".vert", ec)) out.insert(v + ".vert");

@@ -32,7 +32,8 @@ public:
     // len — длина оси в мировых единицах; grabbed: -1 нет, 0..2 ось, 3 центр/равномерно
     void RenderGizmo3D(const glm::vec3& center, float len, int mode, int grabbed, Camera* camera);
     // Границы меша в ЛОКАЛЬНЫХ координатах (центр + половинный размер) — для выделения кликом
-    bool GetMeshBounds(int meshType, const std::string& objPath, glm::vec3& center, glm::vec3& half);
+    // meshType: 0 Cube, 1 Plane, 2 Sphere, 3 OBJ, 4 glTF
+    bool GetMeshBounds(int meshType, const std::string& modelPath, glm::vec3& center, glm::vec3& half);
     // Каркас 3D-коллайдеров: ровно те границы, с которыми работает физика
     void RenderColliders3D(const std::vector<Entity>& entities, Camera* camera);
     void RenderParticles(const std::vector<Entity>& entities, Camera* camera);
@@ -77,8 +78,10 @@ private:
     };
     Mesh3D m_PrimCube, m_PrimPlane, m_PrimSphere;
     std::unordered_map<std::string, Mesh3D> m_ObjCache;
+    std::unordered_map<std::string, Mesh3D> m_GltfCache;
     Mesh3D MakeMesh3D(const std::vector<float>& verts, const std::vector<uint32_t>& idx);
     const Mesh3D& GetObjMesh(const std::string& path);
+    const Mesh3D& GetGltfMesh(const std::string& path);
     const Mesh3D* MeshForEntity(const Entity& e);
 
     GLuint m_GridVAO = 0, m_GridVBO = 0;
