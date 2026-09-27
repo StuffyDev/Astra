@@ -3413,7 +3413,7 @@ static bool RunShell(const std::string& cmd, std::string& outLog) {
 
 bool AstraBuildGame(const std::string& exeSrc, const std::string& scenePath,
                     const std::string& destDir, int mode, bool copyEngineLib, bool encrypt,
-                    std::string& status) {
+                    const std::string& exeName, std::string& status) {
     std::error_code ec;
     fs::path dest(destDir);
     fs::create_directories(dest, ec);
@@ -3512,7 +3512,8 @@ bool AstraBuildGame(const std::string& exeSrc, const std::string& scenePath,
 
     if (mode == 1) {
         // Один exe: бандл приклеивается к бинарнику
-        fs::path outExe = dest / (fs::path(scenePath).stem().string());
+        const std::string gameName = exeName.empty() ? fs::path(scenePath).stem().string() : exeName;
+        fs::path outExe = dest / gameName;
         fs::copy_file(self, outExe, fs::copy_options::overwrite_existing, ec);
         if (ec) { status = "Копирование бинарника: " + ec.message(); return false; }
 
@@ -3582,7 +3583,8 @@ bool AstraBuildGame(const std::string& exeSrc, const std::string& scenePath,
             fs::copy_file(libDir / libName, dest / libName, fs::copy_options::overwrite_existing, ec);
             if (ec) { status = "Копирование либки: " + ec.message(); return false; }
         }
-        fs::path outExe = dest / (fs::path(scenePath).stem().string());
+        const std::string gameName = exeName.empty() ? fs::path(scenePath).stem().string() : exeName;
+        fs::path outExe = dest / gameName;
         std::string rpath = copyEngineLib ? "$ORIGIN" : libDir.string();
         std::string cmd = std::string("g++ -std=c++17 -O2 ") + SCRIPT_INCLUDES + " -I" +
                           launcherQuote(srcDir.string()) + " " + launcherQuote(launcherCpp.string()) +
@@ -3616,7 +3618,7 @@ bool AstraBuildGame(const std::string& exeSrc, const std::string& scenePath,
 
 bool GUI::BuildGame(const std::string& destDir, const std::string& scenePath) {
     return AstraBuildGame("/proc/self/exe", scenePath, destDir, m_BuildMode, m_BuildCopyEngineLib,
-                             m_BuildEncrypt, m_BuildStatus);
+                          m_BuildEncrypt, m_BuildProduct, m_BuildStatus);
 }
 
 std::string AstraBundleExtract() {
@@ -3722,7 +3724,7 @@ void GUI::RenderBuildDialog(EditorContext& ctx) {
             const std::string& sc = m_BuildSceneList[i];
             ImGui::PushID(sc.c_str());
             bool boot = (int)i == m_BuildBoot;
-            if (ImGui::RadioButton("##boot", boot)) m_BuildBoot = (int)i;
+            if (ImGui::RadioButton("##boot", boot)) { m_BuildBoot = (int)i; m_BuildSceneIncluded[i] = true; }
             ImGui::SameLine();
             bool inc = m_BuildSceneIncluded[i];
             if (ImGui::Checkbox("##inc", &inc)) m_BuildSceneIncluded[i] = inc;
@@ -3753,10 +3755,14 @@ void GUI::RenderBuildDialog(EditorContext& ctx) {
         ImGui::Separator();
         if (ImGui::Button("Build", ImVec2(140, 0))) {
             m_BuildStatus.clear();
+            // Стартовая = сцена под радиокнопкой (обязательно Included); иначе — первая Included
             std::string bootScene;
-            for (size_t i = 0; i < m_BuildSceneList.size(); i++) {
-                if (m_BuildSceneIncluded[i]) { bootScene = m_BuildSceneList[i]; break; }
-                if ((int)i == m_BuildBoot) bootScene = m_BuildSceneList[i];
+            if (m_BuildBoot >= 0 && m_BuildBoot < (int)m_BuildSceneList.size() &&
+                m_BuildSceneIncluded[m_BuildBoot]) {
+                bootScene = m_BuildSceneList[m_BuildBoot];
+            } else {
+                for (size_t i = 0; i < m_BuildSceneList.size(); i++)
+                    if (m_BuildSceneIncluded[i]) { bootScene = m_BuildSceneList[i]; m_BuildBoot = (int)i; break; }
             }
             if (bootScene.empty()) {
                 m_BuildStatus = "Нет стартовой сцены — отметь хотя бы одну";
@@ -3769,7 +3775,7 @@ void GUI::RenderBuildDialog(EditorContext& ctx) {
             }
         }
         ImGui::SameLine();
-        ImGui::TextDisabled("лаунчер + libastra_engine.so, только нужные ассеты");
+        ImGui::TextDisabled("лаунчер + libastra_engine.so, только нужные ассеты; exe = Product name");
         if (!m_BuildStatus.empty()) {
             ImGui::Separator();
             ImGui::TextWrapped("%s", m_BuildStatus.c_str());

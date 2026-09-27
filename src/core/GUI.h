@@ -251,9 +251,10 @@ private:
 // Сборка игры: mode 0 — маленький лаунчер, линкованный с libastra_engine.so (как в Godot:
 // движок не дублируется, либка кладётся рядом или берётся по пути сборки);
 // mode 1 — один exe с приклеенным бандлом; mode 2 — папка (astra + assets + build-scripts + game.json).
+// exeName — имя файла игры (пусто = по имени сцены)
 bool AstraBuildGame(const std::string& exeSrc, const std::string& scenePath,
                     const std::string& destDir, int mode, bool copyEngineLib, bool encrypt,
-                    std::string& status);
+                    const std::string& exeName, std::string& status);
 
 // Ищет бандл в конце собственного исполняемого файла; если есть — распаковывает
 // в каталог рядом с exe и возвращает его (иначе пустую строку)
