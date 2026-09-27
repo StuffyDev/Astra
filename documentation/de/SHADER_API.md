@@ -73,7 +73,67 @@ Inspector ▸ Material: 4 Slider → `u_Params.xyzw`, Farbe → `u_PColor`.
 Du drehst an einem Regler — der Shader ändert sich sofort (im Editor wie im gebauten Spiel).
 Damit stellt man ein: Effektstärke, Größe/Tempo, Farbe, Transparenz — ohne Neukompilierung.
 
-## 6. Fertige Beispiele aus dem Projekt
+## 6. 3D-Materialien (Mesh-Shader)
+
+Eine 3D-Entity hat das Feld **Mesh Shader** (der Basispfad von `.vert/.frag`, leer — der System-Shader
+der Engine). Wie im 2D genügt auch hier nur die `.frag`: den Vertex-Teil liefert die Engine (`EngineMeshVert`).
+
+Was die Präambel des Vertex-Shaders liefert (`in`-Attribute des Meshes: `a_Pos`, `a_Normal`, `a_UV`):
+
+| Name | Typ | Was das ist |
+|---|---|---|
+| `u_VP`, `u_Model` | `mat4` | Kamera-Projektion und Modell |
+| `u_Time`, `u_ScreenSize` | `float`, `vec2` | Zeit und Viewport-Größe |
+| `v_World`, `v_Normal`, `v_UV` | `out` | Weltposition, Normale, uv |
+| `EngineMeshVert()` | void | Standard-Vertex-Shader (aus `main()` aufrufen) |
+| `EngineClip(localPos)` | `vec4` | Clip-Koordinaten eines Punkts des Modells |
+| `EngineWorld(localPos)` | `vec3` | Weltkoordinaten eines Punkts des Modells |
+| `EngineNormalWorld()` | `vec3` | die Normale in Weltkoordinaten |
+| `EngineWaveVert(amp, freq)` | `vec3` | Position mit einer Welle über der Höhe |
+
+Der Fragment-Shader bekommt Licht, Schatten und Material:
+
+| Name | Typ/Signatur | Was das ist |
+|---|---|---|
+| `u_Color`, `u_Texture`, `u_UseTex` | `vec3`, `sampler2D`, `float` | Farbe und Textur des Meshes |
+| `u_Params`, `u_PColor` | `vec4` | »Material« aus dem Inspector (dieselben Regler wie im 2D) |
+| `u_LightDir`, `u_LightColor`, `u_Ambient` | `vec3`, `vec3`, `float` | Sonne und Aufhelllicht |
+| `u_LightVP`, `u_ShadowMap`, `u_Texel`, `u_UseShadow` | `mat4`, `sampler2D`, `float`, `float` | Schattenkarte der Sonne |
+| `u_EyePos` | `vec3` | Position der Kamera (für Fresnel/Nebel/Glanzlichter) |
+| `EngineBaseColor()` | `vec4` | Textur × Farbe (berücksichtigt `u_UseTex`) |
+| `EngineShadow(world, n)` | `float` | 1 — Licht, 0 — im Schatten (3×3-PCF, Verschiebung entlang der Normalen) |
+| `EngineLambert(n)` | `float` | `max(dot(n, sun), 0)` |
+| `EngineLit(albedo, n, world)` | `vec3` | `albedo * (Sonne × Schatten + ambient)` — wie beim System-Shader |
+| `EngineLightDir()`, `EngineViewDir()` | `vec3` | Richtungen |
+| `EngineFresnel(n, power)` | `float` | die Kante |
+| `EngineSpecular(n, power)` | `float` | Glanzlicht über die Hälfte des Vektors »Sonne + Blick« |
+| `EngineFog(density)` | `float` | 0..1 nach Distanz zur Kamera |
+
+Das minimale 3D-Material:
+
+```glsl
+void main() {
+    vec3 n = normalize(v_Normal);
+    vec3 col = EngineLit(EngineBaseColor().rgb, n, v_World);
+    col += vec3(0.35, 0.6, 1.0) * EngineFresnel(n, 2.5) * u_Params.x;   // Kante
+    col += vec3(1.0, 0.85, 0.6) * EngineSpecular(n, 48.0) * u_Params.y; // Glanzlicht
+    fragColor = vec4(col, 1.0);
+}
+```
+
+Ein vollständiges Beispiel ist `assets/shaders/metal3d.frag` (Szene `3d_demo.scene`, Objekt »Cube Metal«).
+Einen eigenen Vertex-Shader brauchst du nur, wenn du die Geometrie verformen willst:
+
+```glsl
+void main() {
+    v_World = EngineWorld(EngineWaveVert(12.0, 2.0));
+    v_Normal = EngineNormalWorld();
+    v_UV = a_UV;
+    gl_Position = u_VP * vec4(v_World, 1.0);
+}
+```
+
+## 7. Fertige Beispiele aus dem Projekt
 
 | Datei | Was sie zeigt |
 |---|---|
@@ -84,10 +144,13 @@ Damit stellt man ein: Effektstärke, Größe/Tempo, Farbe, Transparenz — ohne 
 | `effect_rainbow.frag` | `EngineRainbow` + `EnginePulse` |
 | `effect_plasma.frag` | `EngineFbm`-Plasma |
 | `example_wobble.vert/.frag` | eigener Vertex-Shader mit Welle |
+| `metal3d.frag` | 3D-Material: `EngineLit` + Schatten + Fresnel + Glanzlicht (Szene 3d_demo) |
 
-## 7. Fehlersuche
+## 8. Fehlersuche
 
-- Kompilierungsfehler — in der Console (Text von glslang/GLSL), das Objekt wird mit dem System-Shader gezeichnet.
+- Kompilierungsfehler — in der Console (Text von glslang/GLSL), das Objekt wird mit dem System-Shader
+  gezeichnet (dasselbe gilt für 3D: ein kaputter `Mesh Shader` fällt stillschweigend auf den
+  System-Shader zurück).
 - Schnelle Prüfung ohne Engine: `glslangValidator` + die Präambeln der Engine (bei einem Fehler gibt die Engine
   sie selbst aus; oder schau dir `kUserFragPrelude` in `src/core/Renderer.cpp` an).
 - Pixel-Artefakte bei Animationen: setze `Cols/Rows` so, dass die Frames nicht zerteilt werden

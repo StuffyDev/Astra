@@ -158,10 +158,83 @@ SCRIPT_ENTRY(SpaceBody)
   `OnDestroy + delete`. Kompilierungsfehler werfen das Spiel nicht raus — sie sind in der Console sichtbar.
 - Im gebauten Spiel wird nichts kompiliert: es werden fertige `.so` aus `build-scripts/` verwendet.
 
-## 7. Häufige Stolperfallen
+## 7. 3D: Pose, Physik, Raycasts
+
+In einer 3D-Szene lebt die Entity in `pos3 / rot3 (Grad, X→Y→Z) / scale3` — die Methoden unten
+arbeiten genau damit. Die Welteinheiten sind dieselben wie im 2D: 100 Einheiten = 1 Meter
+(umgestellt in Settings ▸ Physics ▸ Pixels per meter), deshalb liefert `Gravity3D()` per Default
+etwa `(0, -981, 0)`.
+
+Methoden von `Script` (protected, in der abgeleiteten Klasse):
+
+| Methode | Was sie tut |
+|---|---|
+| `bool Is3D() const` | ob die Entity dreiachsig ist (sonst bewegen die 3D-Methoden nichts) |
+| `glm::vec3 Position3D() const` | Weltposition inklusive der Parent-Kette |
+| `void SetPosition3D(const glm::vec3&)` | in die Welt setzen (rechnet zurück auf die lokale Position) |
+| `void Translate3D(const glm::vec3&)` | `pos3` verschieben (lokal, ohne Parent) |
+| `glm::vec3 Rotation3D() const` / `SetRotation3D(const glm::vec3&)` | Winkel in Grad |
+| `void SetScale3D(const glm::vec3&)` | Maßstab (gleicht dabei auch den 2D-`scale` an) |
+| `glm::vec3 Velocity3D() const` / `SetVelocity3D(const glm::vec3&)` | Geschwindigkeit des Rigidbody (3D); der Setter erzeugt die Komponente, falls sie fehlt |
+| `void AddForce3D(const glm::vec3&)` | Impuls: `velocity += impulse / mass` |
+| `void SetGravityEnabled3D(bool)` | Schwerkraft ein-/ausschalten (erzeugt ebenfalls den Rigidbody) |
+| `void LookAt3D(const glm::vec3&)` | das Objekt mit `-Z` auf das Ziel drehen (wie `transform.LookAt` in Unity) |
+| `void AddForceTo3D(Entity*, const glm::vec3&)` / `void SetVelocityOf3D(Entity*, const glm::vec3&)` | dasselbe für eine **fremde** Entity |
+
+Globale Funktionen:
+
+```cpp
+struct RayHit3D { uint32_t entityId; std::string name; glm::vec3 point, normal; float distance; };
+bool Raycast3D(const glm::vec3& origin, const glm::vec3& dir, float maxDist, RayHit3D& out);
+int  RaycastAll3D(const glm::vec3& origin, const glm::vec3& dir, float maxDist, RayHit3D* out, int max);
+glm::vec3 Gravity3D();
+uint32_t InstantiatePrefab3D(const std::string& prefabPath, const glm::vec3& pos);
+inline void AddForce3D(Entity* e, const glm::vec3& impulse);   // für fremde Entities
+inline void SetVelocity3D(Entity* e, const glm::vec3& v);
+inline glm::vec3 MoveTowards3D(const glm::vec3& from, const glm::vec3& to, float maxDelta);
+```
+
+`Raycast3D` geht über die 3D-Entities: wer einen **Collider (3D)** hat, liefert dessen Ausdehnung
+(mit Maßstab und Drehung), wer keinen hat, eine Box um das Mesh (`0.5 * scale3`). Zurückkommen
+das nächstgelegene Ziel, die Normale der Eintrittsfläche und die Distanz; `dir` musst du nicht
+normalisieren.
+
+Physik: `Rigidbody (3D)` und `Collider (3D)` fügt man im Inspector hinzu (`+ Add Component`,
+nur bei 3D-Entities) oder per Skript (`SetGravityEnabled3D`, `AddForce3D`). Die Ereignisse sind
+dieselben wie im 2D: `OnTriggerEnter/Exit(otherId)`, `OnCollisionEnter(otherId)` — aus `otherId`
+wird die `Entity*` über `Scene()` oder `FindById`.
+
+Beispiel — ein springender Würfel (`assets/scripts/bounce3d.cpp`):
+
+```cpp
+class Bounce3D : public Script {
+public:
+    void Start() override {
+        DefineVar("kick", 900.0f);
+        SetGravityEnabled3D(true);
+    }
+    void Update(float dt) override {
+        RayHit3D hit;
+        bool grounded = Raycast3D(Position3D(), glm::vec3(0, -1, 0), 70.0f, hit);
+        if (grounded && Velocity3D().y <= 1.0f)
+            SetVelocity3D(glm::vec3(Velocity3D().x, GetVar("kick"), Velocity3D().z));
+        glm::vec3 r = Rotation3D(); r.y += dt * 20.0f; SetRotation3D(r);
+    }
+};
+SCRIPT_ENTRY(Bounce3D)
+```
+
+## 8. Häufige Stolperfallen
 
 - `Owner()` kann `nullptr` werden (die Entity wurde gelöscht) — in jeder Methode prüfen.
 - `DestroyEntity` innerhalb von `Update` ist sicher: die Instanz überlebt den Frame und stirbt bei SyncInstances.
 - Wechsel von `scriptPath` oder der `.cpp` zur Laufzeit legt die Instanz neu an (`Start()` läuft erneut).
 - Die Physik von Kind-Rigidbodies wird nicht simuliert — sie werden vom Elternobjekt bewegt.
 - `timeScale=0` + `UnscaledDelta()` — der einzige Weg, im pausierten Zustand noch etwas zu tun.
+- Innerhalb der `Script`-Methoden überdeckt das gleichnamige Mitglied die globale Funktion:
+  `AddForce3D(other, v)` kompiliert nicht — nimm `AddForceTo3D(other, v)` oder `::AddForce3D(other, v)`.
+- Eine 3D-Entity ist in einer 2D-Szene nicht im Scene-View sichtbar (und umgekehrt): der Modus ist
+  eine Eigenschaft der Szene, `View ▸ 3D Scene`.
+- `Translate3D` berücksichtigt die Drehung des Elternobjekts nicht — für »lokale« Bewegung selbst umrechnen.
+- `Raycast3D` ohne `Collider (3D)` nutzt die Ausdehnung des Meshes: bei einem gedrehten Modell ist sie
+  breiter als das eigentliche Objekt.

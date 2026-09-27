@@ -225,6 +225,7 @@ die Zwischenablage; Klick auf eine Zeile — diese Zeile kopieren. Der Fehlerzä
 
 - `assets/scenes/black_hole.scene` — Shader-Welt (Akkretionsscheibe, Umlaufbahn per Skript, Mond als Kind-Entity).
 - `assets/scenes/animation_demo.scene` — Sprite-Sheet-Ball 4×2 + Live-Material-Parameter.
+- `assets/scenes/3d_demo.scene` — 3D: Boden, springender Würfel, Schatten, eigener Mesh-Shader.
 - `assets/scripts/rotate.cpp`, `player.cpp`, `examples/black_hole/orbit_planet.cpp`.
 - `examples/` — Quelltexte der Beispiele; `templates/default_project` — Projektvorlage.
 
@@ -269,9 +270,20 @@ Würfel per Default misst 100×100×100.
 **Erzeugen**: `GameObject ▸ Create 3D ▸ Cube / Plane / Sphere / OBJ Model` (wer in einer 2D-Szene
 ein 3D-Objekt erzeugt, schaltet die Szene automatisch auf 3D um). Im Inspector hat jede Entity die
 Checkbox **3D Object**: Position 3 / Rotation 3 (in Grad, Reihenfolge X→Y→Z) / Scale 3, **Mesh**
-(Cube/Plane/Sphere/OBJ), `.obj`-Pfad, Mesh Texture, Mesh Color. `transform.position/scale` bleiben
-bei einer 3D-Entity erhalten — sie werden für das 2D-Erbe gebraucht, die Position im 3D kommt aus
-`pos3`.
+(Cube / Plane / Sphere / **OBJ** / **glTF**), Pfad zum Modell, Mesh Texture, Mesh Color.
+`transform.position/scale` bleiben bei einer 3D-Entity erhalten — sie werden für das 2D-Erbe
+gebraucht, die Position im 3D kommt aus `pos3`.
+
+**Modelle: glTF und OBJ.** glTF 2.0 (`Mesh` = glTF) ist das bevorzugte Format: gelesen wird beides,
+`.glb` (alles in einer Datei) und `.gltf` (JSON + externe `.bin` oder `data:`-URI in base64).
+Unterstützt sind der erste Mesh mit all seinen Primitiven, `POSITION`/`NORMAL`/`TEXCOORD_0`,
+Indizes als u32/u16/u8, interleaved `byteStride` und `normalized`-Attribute; fehlen in der Datei
+die Normalen, rechnet die Engine flache Normalen je Fläche. Der Pfad der Textur aus
+`baseColorTexture` steht im Inspector nur als Hinweis — das Bild legst du selbst in `Mesh Texture`
+ab. Knotentransformationen, Skinning, Animationen, PBR-Metallic und Draco werden nicht unterstützt
+(stehen auf dem Plan). OBJ (`Mesh` = OBJ) bleibt: v/vt/vn, Polygone → Dreiecke, die Flächennormale,
+wenn kein `vn` da ist. Externe `.bin` einer `.gltf` rücken in die Abhängigkeiten der Szene und werden
+beim Build genauso verschlüsselt wie das Modell selbst.
 
 **Licht** — lambertsch mit Schatten: `diffuse = max(dot(n, sun), 0) * shadow + Ambient`,
 Sonnenrichtung/-farbe und Ambient werden in Edit ▸ Settings ▸ Lighting (3D) gesetzt und in
@@ -295,16 +307,32 @@ in `pos3`, die Blickrichtung aus der Rotation) — die Kamera lässt sich also w
 »scheinen« Würfel nicht mehr durcheinander hindurch.
 
 **Serialisierung**: die Zeile `Scene3D: 0|1` im Dateikopf plus die Entity-Schlüssel `Is3D`, `Pos3`,
-`Rot3`, `Scale3`, `MeshType` (0=Cube, 1=Plane, 2=Sphere, 3=OBJ), `MeshPath`, `MeshTex`, `MeshColor`,
-`CamPersp`, `CamFov`. Alte Dateien laden unverändert — dort stehen `Is3D: 0` und `Scene3D: 0`.
+`Rot3`, `Scale3`, `MeshType` (0=Cube, 1=Plane, 2=Sphere, 3=OBJ, 4=glTF), `MeshPath`, `MeshTex`,
+`MeshColor`, `CamPersp`, `CamFov` und die 3D-Physik: `HasRigidbody3D`, `Rb3Kinematic`,
+`Rb3Velocity`, `Rb3Mass`, `Rb3Drag`, `Rb3Gravity`, `HasCollider3D`, `Col3Type`, `Col3Trigger`,
+`Col3Center`, `Col3Half`, `Col3Radius`. Alte Dateien laden unverändert — dort stehen `Is3D: 0`
+und `Scene3D: 0`.
 
 **Spiel-Build**: Die `.obj` aus `MeshPath` und das Bild aus `MeshTex` rücken in die
 Abhängigkeitsliste der Szene, sie werden also genauso kopiert/verschlüsselt wie Texturen und Sounds
 (Abschnitt 11).
 
-**Beispiel**: `assets/scenes/3d_demo.scene` — Boden, drei Würfel und eine Kugel unter einer
-Perspektivkamera mit Schatten (per Doppelklick im Project-Fenster öffnen).
+**Beispiel**: `assets/scenes/3d_demo.scene` — Boden, drei Würfel, eine rollende Kugel und eine
+Trigger-Zone unter einer Perspektivkamera mit Schatten (per Doppelklick im Project-Fenster öffnen).
+Ebenfalls darin: `Cube Bouncing`, das mit dem Skript `assets/scripts/bounce3d.cpp` springt
+(Schwerkraft + `Raycast3D` nach unten), und `Cube Metal` mit seinem eigenen Shader
+`assets/shaders/metal3d.frag`. Der Aufbau der Szene im Detail — `examples/3d_demo/README.md`.
 
-**Weiterer 3D-Plan**: 3D-Physik (Rigidbody/Collider für drei Achsen), Skelett-Animation, glTF statt
-OBJ, Mesh Renderer als eigene Komponente getrennt vom Sprite, ein orthografischer Ansichtmodus,
-Beleuchtung durch mehrere Lichtquellen.
+**3D-Physik**: die Komponenten **Rigidbody (3D)** und **Collider (3D)** kommen über die Schaltfläche
+`+ Add Component` dazu (nur bei 3D-Entities). Die Schwerkraft zeigt nach `-Y` (eingestellt in
+Edit ▸ Settings ▸ Physics — Gravity (3D), in m/s², genau wie im 2D), als Kollider gibt es Box und
+Sphere; die Größen stehen in Einheiten des Meshes (`Half Size 0.5` + `Scale 3 = 100` = ein
+Würfel 100×100×100), die Drehung zählt als Ausdehnung des gedrehten Kastens (AABB), der Maßstab
+über `Scale 3`. `Is Kinematic` — den Körper führt das Skript/das Elternobjekt, `Is Trigger` — ohne
+Auseinanderschieben, die Ereignisse dieselben: `OnTriggerEnter/Exit`, `OnCollisionEnter`.
+Das Drahtgitter der Kollider ist in der Scene sichtbar (grün — fest, blau — Trigger).
+Kind-Körper werden nicht simuliert — sie bewegt das Elternobjekt.
+
+**Weiterer 3D-Plan**: Skelett-Animation und glTF-Animationen, Mesh Renderer als eigene Komponente
+getrennt vom Sprite, ein orthografischer Ansichtmodus, mehrere Lichtquellen, PBR-Materialien
+statt des Lambert-Modells.

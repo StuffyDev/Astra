@@ -157,7 +157,7 @@ SCRIPT_ENTRY(SpaceBody)
   `OnDestroy + delete`。编译错误不会让游戏崩溃 — 而是在 Console 中显示出来。
 - 在打包后的游戏里不编译脚本：直接使用 `build-scripts/` 中现成的 `.so`。
 
-## 8. 3D：姿态、物理、射线
+## 7. 3D：姿态、物理、射线
 
 在 3D 场景里，实体活在 `pos3 / rot3（角度，顺序 X→Y→Z）/ scale3` 中 — 下面的方法作用的就是它。
 世界单位与 2D 相同：100 单位 = 1 米（在 Settings ▸ Physics ▸ Pixels per meter 里设置），
@@ -221,7 +221,7 @@ public:
 SCRIPT_ENTRY(Bounce3D)
 ```
 
-## 7. 常见的坑
+## 8. 常见的坑
 
 - `Owner()` 可能变成 `nullptr`（实体已被删除）— 每个方法里都要判空。
 - 在 `Update` 里调用 `DestroyEntity` 是安全的：实例会活过本帧，在 SyncInstances 时才销毁。

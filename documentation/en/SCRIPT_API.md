@@ -158,7 +158,7 @@ SCRIPT_ENTRY(SpaceBody)
   path → `OnDestroy + delete`. Compile errors don't take the game down — they show in the Console.
 - In a built game scripts are not compiled: ready-made `.so` files from `build-scripts/` are used.
 
-## 8. 3D: transform, physics, rays
+## 7. 3D: transform, physics, rays
 
 In a 3D scene an entity lives in `pos3 / rot3 (degrees, X→Y→Z) / scale3`, and the methods below work
 against that. The world units are the same as in 2D: 100 units = 1 meter (set in Settings ▸ Physics ▸
@@ -223,7 +223,7 @@ public:
 SCRIPT_ENTRY(Bounce3D)
 ```
 
-## 7. Common pitfalls
+## 8. Common pitfalls
 
 - `Owner()` may become `nullptr` (the entity was deleted) — check it in every method.
 - `DestroyEntity` inside `Update` is safe: the instance survives the frame and dies at SyncInstances.
