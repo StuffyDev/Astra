@@ -49,6 +49,9 @@ public:
     void RenderPlayerFrame(EditorContext& ctx, int w, int h);
 
     bool IsSceneHovered() const { return m_SceneHovered; }
+    // мышь ровно над изображением сцены (не над вкладками/компасом/виджетами внутри окна) —
+    // только тогда клик считается кликом по сцене
+    bool IsSceneImageHot() const { return m_SceneImageHot; }
     bool IsSceneFocused() const { return m_SceneFocused; }
     glm::vec2 GetSceneMousePos() const { return m_SceneMousePos; }
     glm::vec2 GetSceneSize() const { return m_SceneSize; }
@@ -63,6 +66,7 @@ public:
 private:
     GLFWwindow* m_Window;
     bool m_SceneHovered = false;
+    bool m_SceneImageHot = false;
     bool m_SceneFocused = false;
     glm::vec2 m_SceneMousePos;
     glm::vec2 m_SceneSize;

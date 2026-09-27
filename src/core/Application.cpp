@@ -313,13 +313,13 @@ void Application::ProcessInput(float deltaTime) {
                 for (const auto& v : kViews)
                     if (Input::Get().WasKeyPressed(v.key)) { SceneViewLook(v.yaw, v.pitch); break; }
             }
-        } else if (m_G3DDragging) {
-            m_G3DDragging = false;
-            m_G3DGrab = -1;
         }
         // матрицы — уже с новыми углами, иначе picking и гизмо живут прошлокадровой камерой
         m_Camera->SetFly(m_FlyPos, m_FlyYaw, m_FlyPitch);
-        HandleSceneMouse3D(vp, m_Scene->GetGizmoMode(), editing);
+        // hot — ровно изображение сцены: клик по вкладкам Scene/Game или компасу не трогает
+        // выделение, иначе инспектор пустеет «на ровном месте»
+        HandleSceneMouse3D(vp, m_Scene->GetGizmoMode(), editing,
+                           overScene && m_GUI->IsSceneImageHot());
         m_Window->UpdateLastMousePos();
         m_Window->ResetScrollOffset();
         return;
@@ -390,7 +390,7 @@ void Application::ProcessInput(float deltaTime) {
     }
 
     // ===== Выделение в Scene и Gizmo (только в Edit-режиме, Hand-режим тащит камеру) =====
-    if (editing && m_GUI->IsSceneHovered() && !m_ScenePanning && m_Scene->GetGizmoMode() < 3) {
+    if (editing && m_GUI->IsSceneImageHot() && !m_ScenePanning && m_Scene->GetGizmoMode() < 3) {
         auto& ents = m_SceneManager->GetEntities();
         Entity* selected = m_SceneManager->GetSelectedEntityPtr();
 
@@ -713,7 +713,7 @@ void Application::FocusOnSelection() {
     m_FlyPos = target - m_Camera->Forward() * m_FlyRefDist;
 }
 
-void Application::HandleSceneMouse3D(const glm::vec2& vp, int rawMode, bool editing) {
+void Application::HandleSceneMouse3D(const glm::vec2& vp, int rawMode, bool editing, bool hot) {
     Entity* sel = m_SceneManager->GetSelectedEntityPtr();
     const bool sel3D = sel && sel->is3D;
     const int mode = (rawMode >= 0 && rawMode <= 2) ? rawMode : -1;   // Hand/Tile — без гизмо
@@ -723,13 +723,15 @@ void Application::HandleSceneMouse3D(const glm::vec2& vp, int rawMode, bool edit
     m_Scene->SetGizmo3D(sel3D && mode >= 0, center, len, mode < 0 ? 0 : mode,
                         m_G3DDragging ? m_G3DGrab : -1);
 
-    if (!editing || mode < 0 || m_GUI->IsCompassHot() || vp.x <= 1.0f || vp.y <= 1.0f) return;
+    // отпускание ловим ВСЕГДА, пока hot==false драг просто замирает: иначе он залипал
+    // и объект уезжал за курсором по всему интерфейсу, включая инспектор
+    const bool down = m_Window->IsMouseButtonDown(GLFW_MOUSE_BUTTON_LEFT);
+    if (m_G3DDragging && !down) { m_G3DDragging = false; m_G3DGrab = -1; }
+
+    if (!editing || !hot || mode < 0 || vp.x <= 1.0f || vp.y <= 1.0f) return;
 
     const glm::vec2 mouse = m_GUI->GetSceneMousePos();
-    const bool pressed = Input::Get().WasMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT);
-    const bool down = m_Window->IsMouseButtonDown(GLFW_MOUSE_BUTTON_LEFT);
-
-    if (pressed) {
+    if (Input::Get().WasMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT)) {
         if (!m_G3DDragging && sel3D) {
             int grab = HitGizmo3D(center, len, mode, mouse, vp);
             if (grab >= 0) { BeginGizmoDrag3D(sel, mode, grab, mouse, vp); return; }
@@ -737,9 +739,7 @@ void Application::HandleSceneMouse3D(const glm::vec2& vp, int rawMode, bool edit
         PickEntity3D(mouse, vp);
         return;
     }
-    if (!m_G3DDragging) return;
-    if (down) UpdateGizmoDrag3D(mouse, vp);
-    else { m_G3DDragging = false; m_G3DGrab = -1; }
+    if (m_G3DDragging) UpdateGizmoDrag3D(mouse, vp);
 }
 
 void Application::HandleFileDrops() {

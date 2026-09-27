@@ -1222,15 +1222,21 @@ void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
             ImVec2 mousePos = ImGui::GetMousePos();
             m_SceneMousePos = glm::vec2(mousePos.x - m_SceneImagePos.x, mousePos.y - m_SceneImagePos.y);
 
-            // Компас вида в углу 3D-сцены: кликабельные оси = виды Front/Top/Right
+            // Компас вида в углу 3D-сцены: клик по осям = виды Front/Top/Right, по центру — перспектива.
+            // Только draw list + свои rects, без ImGui-виджетов: невидимые кнопки сдвигали курсор
+            // и «последний элемент», из-за чего ломался дроп ассетов в Scene и клики по сцене.
             m_CompassHot = false;
+            const ImVec2 imgEnd(m_SceneImagePos.x + m_SceneSize.x, m_SceneImagePos.y + m_SceneSize.y);
+            m_SceneImageHot = m_SceneHovered && ImGui::IsMouseHoveringRect(m_SceneImagePos, imgEnd);
             if (m_3DEditor && ctx.app && avail.x > 140.0f && avail.y > 140.0f) {
                 ImDrawList* dl = ImGui::GetWindowDrawList();
                 const float R = 26.0f;
                 const ImVec2 c(m_SceneImagePos.x + m_SceneSize.x - R - 26.0f,
                                m_SceneImagePos.y + R + 26.0f);
-                m_CompassHot = ImGui::IsMouseHoveringRect(ImVec2(c.x - R - 14, c.y - R - 14),
-                                                          ImVec2(c.x + R + 14, c.y + R + 14));
+                const ImVec2 hotMin(c.x - R - 14.0f, c.y - R - 14.0f), hotMax(c.x + R + 14.0f, c.y + R + 14.0f);
+                m_CompassHot = m_SceneImageHot && ImGui::IsMouseHoveringRect(hotMin, hotMax);
+                if (m_CompassHot) m_SceneImageHot = false;   // компас перехватывает клик
+
                 glm::vec3 fwd = camera->Forward(), rgt = camera->Right(), upv = camera->Up();
                 const glm::vec3 axes[3] = { {1,0,0}, {0,1,0}, {0,0,1} };
                 const ImU32 cols[3] = { IM_COL32(235,95,95,255), IM_COL32(120,220,100,255),
@@ -1239,26 +1245,30 @@ void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
                 const float views[3][2] = { {90.0f, 0.0f}, {0.0f, 89.5f}, {0.0f, 0.0f} };
                 dl->PathArcTo(c, R + 10.0f, 0.0f, 6.2832f, 28);
                 dl->PathStroke(IM_COL32(255, 255, 255, 28), false, 1.0f);
+                ImVec2 spots[3];
                 for (int i = 0; i < 3; i++) {
                     glm::vec2 dir(glm::dot(axes[i], rgt), -glm::dot(axes[i], upv));
                     float depth = glm::dot(axes[i], fwd);          // >0 — ось уходит от камеры
                     if (glm::length(dir) < 1e-3f) dir = glm::vec2(0.0f, -1.0f);
                     else dir = glm::normalize(dir);
-                    ImVec2 p(c.x + dir.x * R, c.y + dir.y * R);
+                    ImVec2 p2(c.x + dir.x * R, c.y + dir.y * R);
+                    spots[i] = p2;
                     ImU32 col = depth > 0.0f ? (cols[i] & 0x00FFFFFF) | (80u << 24) : cols[i];
-                    dl->AddLine(c, p, col, 1.6f);
-                    dl->AddCircleFilled(p, 8.5f, col);
-                    dl->AddText(ImVec2(p.x - 4.0f, p.y - 7.0f), IM_COL32(18, 18, 20, 255), names[i]);
-                    ImGui::SetCursorScreenPos(ImVec2(p.x - 11.0f, p.y - 11.0f));
-                    ImGui::PushID(i);
-                    if (ImGui::InvisibleButton("axis", ImVec2(22.0f, 22.0f)))
-                        ctx.app->SceneViewLook(views[i][0], views[i][1]);
-                    if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-                    ImGui::PopID();
+                    dl->AddLine(c, p2, col, 1.6f);
+                    dl->AddCircleFilled(p2, 8.5f, col);
+                    dl->AddText(ImVec2(p2.x - 4.0f, p2.y - 7.0f), IM_COL32(18, 18, 20, 255), names[i]);
                 }
-                ImGui::SetCursorScreenPos(ImVec2(c.x - 8.0f, c.y - 8.0f));
-                if (ImGui::InvisibleButton("persp", ImVec2(16.0f, 16.0f)))
-                    ctx.app->SceneViewLook(40.0f, 22.0f);
+                if (m_CompassHot) {
+                    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                        ImVec2 mp = ImGui::GetMousePos();
+                        for (int i = 0; i < 3; i++)
+                            if (glm::length(glm::vec2(mp.x - spots[i].x, mp.y - spots[i].y)) < 12.0f)
+                                ctx.app->SceneViewLook(views[i][0], views[i][1]);
+                        if (glm::length(glm::vec2(mp.x - c.x, mp.y - c.y)) < 10.0f)
+                            ctx.app->SceneViewLook(40.0f, 22.0f);
+                    }
+                }
             }
 
             // Предпросмотр runtime UI прямо в Scene: вкладка Game может быть скрыта за Scene
@@ -1382,6 +1392,7 @@ void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
         } else {
             m_SceneHovered = false;
             m_SceneFocused = false;
+            m_SceneImageHot = false;
         }
 
         ImGui::End();
@@ -1389,6 +1400,7 @@ void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
     } else {
         m_SceneHovered = false;
         m_SceneFocused = false;
+        m_SceneImageHot = false;
     }
 
     // ===== GAME VIEW =====

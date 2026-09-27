@@ -75,7 +75,8 @@ private:
     void SeedDemoScene();
 
     // ===== 3D: выделение кликом + гизмо (только в 3D Mode) =====
-    void HandleSceneMouse3D(const glm::vec2& viewportSize, int mode, bool editing);
+    // hot — мышь ровно над изображением сцены (вне вкладок/компаса); отпускание кнопки ловим всегда
+    void HandleSceneMouse3D(const glm::vec2& viewportSize, int mode, bool editing, bool hot);
     int HitGizmo3D(const glm::vec3& center, float len, int mode,
                    const glm::vec2& mouse, const glm::vec2& viewportSize) const;
     bool PlaneHit(const glm::vec3& planePoint, const glm::vec3& planeNormal,
