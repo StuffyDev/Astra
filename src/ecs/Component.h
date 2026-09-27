@@ -107,6 +107,27 @@ struct ParticleEmitter {
     float emitAcc = 0.0f;              // runtime-накопитель
 };
 
+// ===== 3D-физика (для сущностей с is3D) =====
+enum class Collider3DType { Box = 0, Sphere = 1 };
+
+struct Rigidbody3D {
+    bool isKinematic = false;
+    glm::vec3 velocity = glm::vec3(0.0f);
+    float mass = 1.0f;
+    float drag = 0.1f;
+    bool useGravity = true;
+};
+
+struct Collider3D {
+    Collider3DType type = Collider3DType::Box;
+    bool isTrigger = false;
+    // Box — половины размера в ЛОКАЛЬНЫХ единицах (умножаются на scale3: 0.5 = куб по мешу),
+    // Sphere — радиус (тоже масштабируется). center — смещение от центра сущности.
+    glm::vec3 center = glm::vec3(0.0f);
+    glm::vec3 half = glm::vec3(0.5f);
+    float radius = 0.5f;
+};
+
 struct Rigidbody {
     bool isKinematic = false;
     glm::vec2 velocity = glm::vec2(0.0f);

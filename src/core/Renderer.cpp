@@ -6,6 +6,7 @@
 #include "utils/AssetIO.h"
 #include "ecs/Entity.h"
 #include "ecs/Physics.h"
+#include "ecs/Physics3D.h"
 #include "ecs/Transforms.h"
 #include "utils/Shader.h"
 #include "utils/Texture.h"
@@ -667,6 +668,45 @@ void Renderer::RenderShadowMap(const std::vector<Entity>& entities, const glm::m
     glBindVertexArray(0);
     glBindFramebuffer(GL_FRAMEBUFFER, prevFbo);
     glViewport(prevVP[0], prevVP[1], prevVP[2], prevVP[3]);
+}
+
+void Renderer::RenderColliders3D(const std::vector<Entity>& entities, Camera* camera) {
+    if (!AstraPrefs::ShowColliders) return;
+    for (const auto& e : entities) {
+        if (!e.active || !e.is3D || !e.hasCollider3D) continue;
+        Physics3D::Bounds b = Physics3D::WorldBounds(entities, e);
+        const glm::vec3 col = e.col3.isTrigger ? glm::vec3(0.35f, 0.85f, 0.95f)
+                                               : glm::vec3(0.35f, 0.95f, 0.45f);
+        std::vector<float> l;
+        if (b.sphere) {
+            const int steps = 24;
+            const glm::vec3 axes[3] = { {1,0,0}, {0,1,0}, {0,0,1} };
+            for (int a = 0; a < 3; a++) {
+                glm::vec3 u = axes[(a + 1) % 3], v = axes[(a + 2) % 3];
+                for (int i = 0; i < steps; i++) {
+                    float t0 = float(i) / steps * 6.2831853f, t1 = float(i + 1) / steps * 6.2831853f;
+                    glm::vec3 p0 = b.center + (u * cosf(t0) + v * sinf(t0)) * b.radius;
+                    glm::vec3 p1 = b.center + (u * cosf(t1) + v * sinf(t1)) * b.radius;
+                    l.insert(l.end(), { p0.x, p0.y, p0.z, p1.x, p1.y, p1.z });
+                }
+            }
+        } else {
+            const glm::vec3 mn = b.center - b.half, mx = b.center + b.half;
+            for (int i = 0; i < 3; i++) {
+                for (int j = 0; j < 2; j++) {
+                    for (int k = 0; k < 2; k++) {
+                        glm::vec3 a = mn, b2 = mx;
+                        int i1 = (i + 1) % 3, i2 = (i + 2) % 3;
+                        a[i1] = j ? mx[i1] : mn[i1];
+                        a[i2] = k ? mx[i2] : mn[i2];
+                        b2[i1] = a[i1]; b2[i2] = a[i2];
+                        l.insert(l.end(), { a.x, a.y, a.z, b2.x, b2.y, b2.z });
+                    }
+                }
+            }
+        }
+        RenderLines3D(l, col, camera);
+    }
 }
 
 void Renderer::RenderEntities3D(const std::vector<Entity>& entities, Camera* camera) {

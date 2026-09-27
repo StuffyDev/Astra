@@ -6,6 +6,7 @@
 #include "utils/ConsoleLog.h"
 #include "utils/AssetIO.h"
 #include "ecs/Transforms.h"
+#include "ecs/Physics3D.h"
 #include <algorithm>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
@@ -922,6 +923,7 @@ void Application::Update(float deltaTime) {
                 m_SceneManager->Restore(m_PlaySnapshot);
             }
             Physics::ClearState();
+            Physics3D::ClearState();
             m_PhysicsAccumulator = 0.0f;
         }
         m_LastEditorState = m_EditorState;
@@ -940,6 +942,7 @@ void Application::Update(float deltaTime) {
     int steps = 0;
     while (m_PhysicsAccumulator >= fixedDt && steps < 5) {
         Physics::Step(m_SceneManager->GetEntities(), fixedDt);
+        Physics3D::Step(m_SceneManager->GetEntities(), fixedDt);
         ConsumePhysicsEvents();
         m_PhysicsAccumulator -= fixedDt;
         steps++;

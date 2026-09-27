@@ -28,6 +28,18 @@ void WriteEntity(std::ostream& file, const Entity& e, const std::unordered_map<u
     file << "MeshPath: " << e.mesh.meshPath << "\n";
     file << "MeshTex: " << e.mesh.texturePath << "\n";
     file << "MeshColor: " << e.mesh.color.r << " " << e.mesh.color.g << " " << e.mesh.color.b << "\n";
+    file << "HasRigidbody3D: " << (e.hasRigidbody3D ? 1 : 0) << "\n";
+    file << "Rb3Kinematic: " << (e.rb3.isKinematic ? 1 : 0) << "\n";
+    file << "Rb3Velocity: " << e.rb3.velocity.x << " " << e.rb3.velocity.y << " " << e.rb3.velocity.z << "\n";
+    file << "Rb3Mass: " << e.rb3.mass << "\n";
+    file << "Rb3Drag: " << e.rb3.drag << "\n";
+    file << "Rb3Gravity: " << (e.rb3.useGravity ? 1 : 0) << "\n";
+    file << "HasCollider3D: " << (e.hasCollider3D ? 1 : 0) << "\n";
+    file << "Col3Type: " << static_cast<int>(e.col3.type) << "\n";
+    file << "Col3Trigger: " << (e.col3.isTrigger ? 1 : 0) << "\n";
+    file << "Col3Center: " << e.col3.center.x << " " << e.col3.center.y << " " << e.col3.center.z << "\n";
+    file << "Col3Half: " << e.col3.half.x << " " << e.col3.half.y << " " << e.col3.half.z << "\n";
+    file << "Col3Radius: " << e.col3.radius << "\n";
     file << "SpriteType: " << static_cast<int>(e.sprite.type) << "\n";
     file << "Color: " << e.sprite.color.r << " " << e.sprite.color.g << " " << e.sprite.color.b << "\n";
     file << "TexturePath: " << e.sprite.texturePath << "\n";
@@ -268,6 +280,18 @@ bool SceneSerializer::LoadEntities(const std::string& path, std::vector<Entity>&
             else if (key == "MeshPath:") { std::getline(iss, current.mesh.meshPath); current.mesh.meshPath = TrimLead(current.mesh.meshPath); }
             else if (key == "MeshTex:") { std::getline(iss, current.mesh.texturePath); current.mesh.texturePath = TrimLead(current.mesh.texturePath); }
             else if (key == "MeshColor:") { iss >> current.mesh.color.r >> current.mesh.color.g >> current.mesh.color.b; }
+            else if (key == "HasRigidbody3D:") { int v; iss >> v; current.hasRigidbody3D = v; }
+            else if (key == "Rb3Kinematic:") { int v; iss >> v; current.rb3.isKinematic = v; }
+            else if (key == "Rb3Velocity:") { iss >> current.rb3.velocity.x >> current.rb3.velocity.y >> current.rb3.velocity.z; }
+            else if (key == "Rb3Mass:") { iss >> current.rb3.mass; }
+            else if (key == "Rb3Drag:") { iss >> current.rb3.drag; }
+            else if (key == "Rb3Gravity:") { int v; iss >> v; current.rb3.useGravity = v; }
+            else if (key == "HasCollider3D:") { int v; iss >> v; current.hasCollider3D = v; }
+            else if (key == "Col3Type:") { int v; iss >> v; current.col3.type = static_cast<Collider3DType>(v); }
+            else if (key == "Col3Trigger:") { int v; iss >> v; current.col3.isTrigger = v; }
+            else if (key == "Col3Center:") { iss >> current.col3.center.x >> current.col3.center.y >> current.col3.center.z; }
+            else if (key == "Col3Half:") { iss >> current.col3.half.x >> current.col3.half.y >> current.col3.half.z; }
+            else if (key == "Col3Radius:") { iss >> current.col3.radius; }
             else if (key == "SpriteType:") { int v; iss >> v; current.sprite.type = static_cast<SpriteType>(v); }
             else if (key == "Color:") { iss >> current.sprite.color.r >> current.sprite.color.g >> current.sprite.color.b; }
             else if (key == "TexturePath:") { std::getline(iss, current.sprite.texturePath); current.sprite.texturePath = TrimLead(current.sprite.texturePath); }

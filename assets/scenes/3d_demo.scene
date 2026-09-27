@@ -1,5 +1,5 @@
 Astra Scene v2
-EntityCount: 6
+EntityCount: 7
 Scene3D: 1
 ENTITY
 Name: Main Camera
@@ -28,6 +28,8 @@ CameraMain: 1
 CameraZoom: 1
 CamPersp: 1
 CamFov: 55
+HasRigidbody3D: 0
+HasCollider3D: 0
 END_ENTITY
 
 ENTITY
@@ -53,16 +55,23 @@ HasParticles: 0
 HasTilemap: 0
 HasUI: 0
 HasCamera: 0
+HasRigidbody3D: 0
+HasCollider3D: 1
+Col3Type: 0
+Col3Trigger: 0
+Col3Center: 0 0 0
+Col3Half: 0.5 0.02 0.5
+Col3Radius: 0.5
 END_ENTITY
 
 ENTITY
-Name: Cube Red
+Name: Cube Falling
 Active: 1
 Pos: 0 0
 Rot: 0
 Scale: 100 100
 Is3D: 1
-Pos3: -260 60 0
+Pos3: -260 420 0
 Rot3: 0 0 0
 Scale3: 120 120 120
 MeshType: 0
@@ -78,10 +87,22 @@ HasParticles: 0
 HasTilemap: 0
 HasUI: 0
 HasCamera: 0
+HasRigidbody3D: 1
+Rb3Kinematic: 0
+Rb3Gravity: 1
+Rb3Velocity: 0 0 0
+Rb3Mass: 1
+Rb3Drag: 0.1
+HasCollider3D: 1
+Col3Type: 0
+Col3Trigger: 0
+Col3Center: 0 0 0
+Col3Half: 0.5 0.5 0.5
+Col3Radius: 0.5
 END_ENTITY
 
 ENTITY
-Name: Cube Tall
+Name: Cube Static
 Active: 1
 Pos: 0 0
 Rot: 0
@@ -103,6 +124,13 @@ HasParticles: 0
 HasTilemap: 0
 HasUI: 0
 HasCamera: 0
+HasRigidbody3D: 0
+HasCollider3D: 1
+Col3Type: 0
+Col3Trigger: 0
+Col3Center: 0 0 0
+Col3Half: 0.5 0.5 0.5
+Col3Radius: 0.5
 END_ENTITY
 
 ENTITY
@@ -128,6 +156,18 @@ HasParticles: 0
 HasTilemap: 0
 HasUI: 0
 HasCamera: 0
+HasRigidbody3D: 1
+Rb3Kinematic: 0
+Rb3Gravity: 1
+Rb3Velocity: 0 0 0
+Rb3Mass: 1
+Rb3Drag: 0.1
+HasCollider3D: 1
+Col3Type: 0
+Col3Trigger: 0
+Col3Center: 0 0 0
+Col3Half: 0.5 0.5 0.5
+Col3Radius: 0.5
 END_ENTITY
 
 ENTITY
@@ -153,4 +193,48 @@ HasParticles: 0
 HasTilemap: 0
 HasUI: 0
 HasCamera: 0
+HasRigidbody3D: 1
+Rb3Kinematic: 0
+Rb3Gravity: 0
+Rb3Velocity: 0 0 -120
+Rb3Mass: 1
+Rb3Drag: 0.1
+HasCollider3D: 1
+Col3Type: 1
+Col3Trigger: 0
+Col3Center: 0 0 0
+Col3Half: 0.5 0.5 0.5
+Col3Radius: 0.5
+END_ENTITY
+
+ENTITY
+Name: Trigger Zone
+Active: 1
+Pos: 0 0
+Rot: 0
+Scale: 100 100
+Is3D: 1
+Pos3: -60 120 320
+Rot3: 0 0 0
+Scale3: 200 200 200
+MeshType: 0
+MeshPath:
+MeshTex: 
+MeshColor: 0.35 0.85 0.95
+SpriteType: 0
+HasRigidbody: 0
+HasCollider: 0
+HasAudio: 0
+HasScript: 0
+HasParticles: 0
+HasTilemap: 0
+HasUI: 0
+HasCamera: 0
+HasRigidbody3D: 0
+HasCollider3D: 1
+Col3Type: 0
+Col3Trigger: 1
+Col3Center: 0 0 0
+Col3Half: 0.5 0.5 0.5
+Col3Radius: 0.5
 END_ENTITY

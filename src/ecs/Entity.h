@@ -20,6 +20,10 @@ struct Entity {
     glm::vec3 rot3 = glm::vec3(0.0f);
     glm::vec3 scale3 = glm::vec3(100.0f);
     MeshComponent mesh;
+    bool hasRigidbody3D = false; // 3D-физика: отдельный набор компонентов (см. Physics3D)
+    Rigidbody3D rb3;
+    bool hasCollider3D = false;
+    Collider3D col3;
     Sprite sprite;
     SpriteAnimation animation;
     float animTime = 0.0f; // runtime-состояние, в файл не пишется

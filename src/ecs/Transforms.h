@@ -58,6 +58,18 @@ inline const Entity* FindById(const std::vector<Entity>& all, uint32_t id) {
     return nullptr;
 }
 
+// Мировая 3D-позиция с учётом parent-цепочки (родитель может быть 2D — тогда z=0)
+inline glm::vec3 WorldPos3(const std::vector<Entity>& all, const Entity& e) {
+    glm::vec3 p = e.pos3;
+    const Entity* parent = FindById(all, e.parentId);
+    int guard = 0;
+    while (parent && guard++ < 16) {
+        p += parent->is3D ? parent->pos3 : glm::vec3(parent->transform.position, 0.0f);
+        parent = FindById(all, parent->parentId);
+    }
+    return p;
+}
+
 inline glm::vec2 LocalToWorld(const std::vector<Entity>& all, const glm::mat4& parentMatrix, const glm::vec2& local) {
     glm::vec4 w = parentMatrix * glm::vec4(local, 0.0f, 1.0f);
     return glm::vec2(w.x, w.y);

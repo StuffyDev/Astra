@@ -33,6 +33,8 @@ public:
     void RenderGizmo3D(const glm::vec3& center, float len, int mode, int grabbed, Camera* camera);
     // Границы меша в ЛОКАЛЬНЫХ координатах (центр + половинный размер) — для выделения кликом
     bool GetMeshBounds(int meshType, const std::string& objPath, glm::vec3& center, glm::vec3& half);
+    // Каркас 3D-коллайдеров: ровно те границы, с которыми работает физика
+    void RenderColliders3D(const std::vector<Entity>& entities, Camera* camera);
     void RenderParticles(const std::vector<Entity>& entities, Camera* camera);
     void RenderColliders(const std::vector<Entity>& entities, Camera* camera);
     // mode: 0 = Move, 1 = Rotate, 2 = Scale; activeAxis: -1 = не перетаскивать (0=X,1=Y,2=центр/дуга)

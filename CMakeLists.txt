@@ -103,6 +103,7 @@ add_library(AstraEngine SHARED
     src/utils/AssetIO.cpp
     src/ecs/SceneManager.cpp
     src/ecs/Physics.cpp
+    src/ecs/Physics3D.cpp
     src/utils/Shader.cpp
     src/utils/Framebuffer.cpp
     src/utils/Texture.cpp

@@ -27,6 +27,7 @@ void Scene::Render(Camera* camera, SceneManager* sceneManager, int width, int he
         // 3D-сцена: плоские сетка/спрайты/тайлмапы/коллайдеры не рисуем — это другой мир
         m_Renderer->RenderGrid3D(camera);
         m_Renderer->RenderEntities3D(ents, camera);
+        m_Renderer->RenderColliders3D(ents, camera);
     } else {
         m_Renderer->RenderGrid(camera);
         m_Renderer->RenderEntities3D(ents, camera);

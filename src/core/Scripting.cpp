@@ -3,6 +3,7 @@
 #include "ecs/SceneManager.h"
 #include "ecs/Transforms.h"
 #include "ecs/Physics.h"
+#include "ecs/Physics3D.h"
 #include "utils/ConsoleLog.h"
 #include "core/SceneSerializer.h"
 #include <dlfcn.h>
@@ -405,22 +406,24 @@ void Scripting::Update(float dt, const std::vector<Entity>& entities) {
         inst.script->Update(g_Delta);
     }
 
-    if (Physics::ConsumeEvents()) {
-        for (const auto& ev : Physics::GetEvents()) {
+    auto dispatch = [](const std::vector<PhysicsEvent>& events) {
+        for (const auto& ev : events) {
             for (int side = 0; side < 2; side++) {
                 uint32_t selfId = side == 0 ? ev.entityA : ev.entityB;
                 uint32_t otherId = side == 0 ? ev.entityB : ev.entityA;
                 auto it = g_Instances.find(selfId);
                 if (it == g_Instances.end() || !it->second.script) continue;
-                Script* s = it->second.script;
+                Script* sc = it->second.script;
                 switch (ev.type) {
-                    case PhysicsEventType::TriggerEnter: s->OnTriggerEnter(otherId); break;
-                    case PhysicsEventType::TriggerExit: s->OnTriggerExit(otherId); break;
-                    case PhysicsEventType::Collision: s->OnCollisionEnter(otherId); break;
+                    case PhysicsEventType::TriggerEnter: sc->OnTriggerEnter(otherId); break;
+                    case PhysicsEventType::TriggerExit: sc->OnTriggerExit(otherId); break;
+                    case PhysicsEventType::Collision: sc->OnCollisionEnter(otherId); break;
                 }
             }
         }
-    }
+    };
+    if (Physics::ConsumeEvents()) dispatch(Physics::GetEvents());
+    if (Physics3D::ConsumeEvents()) dispatch(Physics3D::GetEvents());
 }
 
 void Scripting::Unload() {

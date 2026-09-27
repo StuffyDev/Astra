@@ -15,6 +15,7 @@
 #include "ecs/Entity.h"
 #include "ecs/Transforms.h"
 #include "ecs/Physics.h"
+#include "ecs/Physics3D.h"
 #include "scripts/ScriptAPI.h"
 #include <imgui.h>
 #include "misc/cpp/imgui_stdlib.h"
@@ -237,6 +238,16 @@ static uint64_t ComputeSignatureFor(const std::vector<Entity>& ents) {
         FnvUpdate(h, &e.hasAudio, sizeof(e.hasAudio));
         FnvUpdate(h, &e.hasScript, sizeof(e.hasScript));
         FnvUpdate(h, &e.hasParticles, sizeof(e.hasParticles));
+        FnvUpdate(h, &e.hasRigidbody3D, sizeof(e.hasRigidbody3D));
+        FnvUpdate(h, &e.hasCollider3D, sizeof(e.hasCollider3D));
+        if (e.hasCollider3D) {
+            FnvUpdate(h, &e.col3, sizeof(e.col3));
+        }
+        if (e.hasRigidbody3D) {
+            FnvUpdate(h, &e.rb3.velocity, sizeof(e.rb3.velocity));
+            FnvUpdate(h, &e.rb3.mass, sizeof(float) * 2);
+            FnvUpdate(h, &e.rb3.useGravity, sizeof(bool) * 2);
+        }
         FnvUpdate(h, &e.sprite.type, sizeof(e.sprite.type));
         FnvUpdate(h, &e.sprite.color, sizeof(e.sprite.color));
         FnvStr(h, e.sprite.texturePath);
@@ -366,6 +377,7 @@ void GUI::LoadUserSettings() {
         else if (k == "grid_size") AstraPrefs::GridSize = (float)num();
         else if (k == "snap_deg") AstraPrefs::SnapDegrees = (float)num();
         else if (k == "gravity") sscanf(v.c_str(), "%f %f", &Physics::Gravity.x, &Physics::Gravity.y);
+        else if (k == "gravity3") sscanf(v.c_str(), "%f %f %f", &Physics3D::Gravity.x, &Physics3D::Gravity.y, &Physics3D::Gravity.z);
         else if (k == "ppm") Physics::PixelsPerMeter = std::max(1.0f, (float)num());
         else if (k == "master_volume") Audio::SetMasterVolume((float)num());
         else if (k == "muted") Audio::SetMuted(num() != 0);
@@ -392,6 +404,7 @@ void GUI::SaveUserSettings() {
       << "snap_deg=" << AstraPrefs::SnapDegrees << "\n"
       << "ppm=" << Physics::PixelsPerMeter << "\n"
       << "gravity=" << Physics::Gravity.x << " " << Physics::Gravity.y << "\n"
+      << "gravity3=" << Physics3D::Gravity.x << " " << Physics3D::Gravity.y << " " << Physics3D::Gravity.z << "\n"
       << "master_volume=" << Audio::MasterVolume() << "\n"
       << "muted=" << (Audio::IsMuted() ? 1 : 0) << "\n"
       << "time_scale=" << Scripting::DefaultTimeScale() << "\n"
@@ -2074,6 +2087,32 @@ void GUI::RenderInspector(EditorContext& ctx) {
         }
         }
 
+        // --- Rigidbody (3D) ---
+        if (selected->hasRigidbody3D) {
+        CompHeader("Rigidbody (3D)", selected->hasRigidbody3D);
+        ImGui::Checkbox("Is Kinematic##rb3", &selected->rb3.isKinematic);
+        ImGui::Checkbox("Use Gravity##rb3", &selected->rb3.useGravity);
+        ImGui::DragFloat3("Velocity##rb3", &selected->rb3.velocity.x, 1.0f);
+        ImGui::DragFloat("Mass##rb3", &selected->rb3.mass, 0.1f, 0.01f, 100000.0f);
+        ImGui::DragFloat("Drag##rb3", &selected->rb3.drag, 0.01f, 0.0f, 10.0f, "%.2f");
+        }
+
+        // --- Collider (3D) ---
+        if (selected->hasCollider3D) {
+        CompHeader("Collider (3D)", selected->hasCollider3D);
+        const char* c3types[] = { "Box", "Sphere" };
+        int c3 = static_cast<int>(selected->col3.type);
+        if (ImGui::Combo("Shape##c3", &c3, c3types, 2))
+            selected->col3.type = static_cast<Collider3DType>(c3);
+        ImGui::Checkbox("Is Trigger##c3", &selected->col3.isTrigger);
+        ImGui::DragFloat3("Center##c3", &selected->col3.center.x, 1.0f);
+        if (selected->col3.type == Collider3DType::Box)
+            ImGui::DragFloat3("Half Size##c3", &selected->col3.half.x, 0.01f, 0.001f, 100.0f);
+        else
+            ImGui::DragFloat("Radius##c3", &selected->col3.radius, 0.01f, 0.001f, 100.0f);
+        ImGui::TextDisabled("единицы меша: 0.5 = половина куба при Scale 3 = 100");
+        }
+
         if (selected->hasCamera) {
             CompHeader("Camera", selected->hasCamera);
             ImGui::Checkbox("Main Camera", &selected->camera.mainCamera);
@@ -2259,6 +2298,17 @@ void GUI::RenderInspector(EditorContext& ctx) {
             }
             if (!selected->hasUI && ImGui::MenuItem("UI Element")) selected->hasUI = true;
             if (!selected->hasCamera && ImGui::MenuItem("Camera")) selected->hasCamera = true;
+            if (selected->is3D && !selected->hasRigidbody3D && ImGui::MenuItem("Rigidbody (3D)"))
+                selected->hasRigidbody3D = true;
+            if (selected->is3D && !selected->hasCollider3D && ImGui::MenuItem("Collider (3D)")) {
+                selected->hasCollider3D = true;
+                glm::vec3 mc, mh;
+                if (ctx.renderer->GetMeshBounds(selected->mesh.type, selected->mesh.meshPath, mc, mh)) {
+                    selected->col3.half = mh;
+                    selected->col3.radius = std::max({mh.x, mh.y, mh.z});
+                    selected->col3.center = mc;
+                }
+            }
             if (!animPresent && ImGui::MenuItem("Sprite Animation")) {
                 selected->animation.active = true;
                 selected->animation.texturePath = selected->sprite.texturePath;
@@ -3200,6 +3250,11 @@ void GUI::RenderSettings(EditorContext& ctx) {
             if (ImGui::Button("Reset##gravity"))
                 Physics::Gravity = glm::vec2(0.0f, -9.81f) * Physics::PixelsPerMeter;
             ImGui::SameLine();
+            glm::vec3 g3 = Physics3D::Gravity / Physics::PixelsPerMeter;   // м/с² по трём осям
+            if (ImGui::DragFloat3("Gravity (3D)", &g3.x, 0.1f, -50.0f, 50.0f, "%.2f m/s²"))
+                Physics3D::Gravity = g3 * Physics::PixelsPerMeter;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Ускорение для Rigidbody (3D). По умолчанию 0, -9.81, 0.");
             float ppm = Physics::PixelsPerMeter;
             if (ImGui::DragFloat("Pixels per meter", &ppm, 1.0f, 1.0f, 10000.0f, "%.0f px/m")) {
                 glm::vec2 g = Physics::Gravity / Physics::PixelsPerMeter;
