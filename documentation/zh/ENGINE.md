@@ -7,7 +7,7 @@ Astra 是一款带 Unity 风格编辑器的 2D/3D 游戏引擎：C++17、OpenGL 
 [实体](#4-实体与组件) · [场景](#5-场景) · [资源](#6-资源与导入) ·
 [UI](#7-游戏界面) · [undo](#8-undo--redo) · [快捷键](#9-快捷键) ·
 [设置](#10-引擎设置) · [打包](#11-游戏打包与播放器) · [控制台](#12-控制台) ·
-[3D](#14-3d-模式)
+[3D](#14-3d-场景)
 
 ---
 
@@ -215,48 +215,66 @@ Project 面板中的 **Console** 标签页：引擎、脚本以及编译错误�
 - `assets/scripts/rotate.cpp`、`player.cpp`、`examples/black_hole/orbit_planet.cpp`。
 - `examples/` — 示例的源码；`templates/default_project` — 项目模板。
 
-## 14. 3D 模式
+## 14. 3D 场景
 
-第一阶段：透视相机、mesh 基元、`.obj` 导入和简单光照。
-2D 工具（sprite、UI、Tilemap、碰撞体、脚本）继续在旁边正常工作。
+3D 是**场景的一个属性**，而不是叠加在 2D 之上的「外挂层」：`View ▸ 3D Scene`（在文件里就是一行
+`Scene3D: 1`）。3D 场景有自己的地面、自己的相机导航和自己的工具集；平面 sprite、Tilemap、碰撞体、
+2D 相机框以及 Scene 里的 UI 预览在那里都不会绘制，Tile 工具也会被隐藏。2D 场景完全没有变化。
 
-**开启**：`View ▸ 3D Mode`。Scene 视口会变成三维：
-- **右键 + 移动鼠标** — 绕焦点轨道旋转（俯仰限制在 ±89°）；
-- **滚轮** — 焦点距离（50…40000 世界单位）；
-- **中键**（或用 **Hand** 工具（Q）+ 左键）— 平移：焦点在屏幕平面内移动；
-- **左键** — 点击选中 mesh 物体：从相机发射一条射线，与场景中每个 mesh 的 AABB 求交（离相机近的优先），
+**3D 场景中的导航**（和 Unity 一样，而不是 2D 平移那一套）：
+- **右键 + 移动鼠标** — 环视（yaw/pitch，俯仰限制在 ±89.5°）；
+- **按住右键 + WASD + Q/E** — 飞行：W/S 在水平面内前后移动，A/D 侧移，E/Q 上升/下降，
+  **Shift** — 速度 ×4，**Ctrl** — 速度 ×0.25（右键按住期间，W/E/R/Q 不再切换工具）；
+- **滚轮** — 沿视线方向推进（离得越远，推得越快）；
+- **中键**（或用 **Hand** 工具（Q）+ 左键）— 在屏幕平面内平移；
+- **左键** — 选中 mesh 物体：从相机发出一条射线与 mesh 的 AABB 求交，离相机近的胜出；
   点空白处则取消选中；
-- **F** — 把轨道焦点移到当前选中的实体上。
+- **F** — 对准当前选中的实体（距离取自它的 scale）；
+- **NUMPAD 1/2/3/4/5/7** — Front/Back/Right/Left/Top/Bottom 视图，**6** — 透视视图；
+- Scene 右上角的**罗盘**：X/Y/Z 轴都可以点击（点中心则复位到透视视图）。
 
-**3D gizmo**：被选中的 3D 实体会画出坐标轴（Move）、圆环（Rotate）或带手柄的坐标轴（Scale）——
+**3D gizmo**：被选中的 3D 物体会画出坐标轴（Move）、圆环（Rotate）或带手柄的坐标轴（Scale）——
 用 **W / E / R** 或工具栏上的按钮切换。
-- Move：拖动 X/Y/Z 轴 — 实体只沿该轴移动；拖动中心的菱形 — 在屏幕平面内自由移动；
+- Move：拖动 X/Y/Z 轴 — 物体只沿该轴移动；拖动中心的菱形 — 在屏幕平面内自由移动；
 - Rotate：拖动圆环 — 绕对应的轴旋转，角度在该圆环所在的平面内计算；
-- Scale：拖动轴末端的方块 — 只缩放这一根轴；拖动中心 — 等比缩放。
+- Scale：拖动轴末端的小方块 — 只缩放这一根轴；拖动中心 — 等比缩放。
 - **Ctrl** — 吸附：位置吸附到 `GridSize`，角度吸附到 `SnapDegrees`。gizmo 在屏幕上保持恒定大小，
   侧视时被压扁的手柄不会抢占点击（取最容易看到的那一个）。
-3D 模式下的 2D gizmo 以及鼠标的平移/缩放都会关闭，以免干扰导航。
 
-**创建**：`GameObject ▸ Create 3D ▸ Cube / Plane / Sphere / OBJ Model`。
-Inspector 里任何实体都有一个 **3D Object** 复选框：Position 3 / Rotation 3（以度为单位，
-按 X→Y→Z 顺序）/ Scale 3、**Mesh**（Cube/Plane/Sphere/OBJ）、`.obj` 路径、Mesh Texture、Mesh Color。
-3D 实体仍然保留 `transform.position/scale` —— 它们用于 2D 遗留与物理，而 3D 中的位置取自 `pos3`。
+**地面与网格**：网格躺在 XZ 平面内（步长 `GridSize`），跟随相机移动，X/Z/Y 三轴做了着色区分。
+世界单位制和 2D 一致：默认的立方体是 100×100×100。
 
-**光照** —— Lambertian 漫反射：`diffuse = max(dot(n, sun), 0) * LightColor + Ambient`，
+**创建**：`GameObject ▸ Create 3D ▸ Cube / Plane / Sphere / OBJ Model`（在 2D 场景里创建 3D 物体会
+自动把该场景切换成 3D）。Inspector 里任何实体都有一个 **3D Object** 复选框：Position 3 /
+Rotation 3（以度为单位，顺序 X→Y→Z）/ Scale 3、**Mesh**（Cube/Plane/Sphere/OBJ）、`.obj` 路径、
+Mesh Texture、Mesh Color。3D 实体仍然保留 `transform.position/scale` —— 它们是 2D 遗留所需要的，
+而 3D 中的位置取自 `pos3`。
+
+**光照** —— 带阴影的 Lambertian 漫反射：`diffuse = max(dot(n, sun), 0) * shadow + Ambient`，
 太阳方向/颜色与 ambient 在 Edit ▸ Settings ▸ Lighting (3D) 里设置，并保存到 `~/.astra/config.ini`。
-纹理会乘以颜色和光照；没有纹理时就是纯色材质。
-基元的法线由引擎生成，`.obj` 的法线取自文件里的 `vn`，没有则按面重新计算。
+纹理会乘以颜色和光照；没有纹理时就是纯色材质。基元的法线由引擎生成，`.obj` 的法线取自文件里的
+`vn`，没有则按面重新计算。
 
-**游戏相机**：Camera 组件上有 **Perspective (3D)** 和 **Field of View**。
-Game 视图透过这台相机渲染 3D 实体（2D 物体仍像以前那样走正交投影）。
-在绘制 mesh 之前会清空深度缓冲，因此立方体之间不会互相「透视穿透」。
+**太阳阴影**：一个单独的 pass 从正交相机写出深度图（depth map），这台正交相机会根据 3D 内容的
+包围范围自动拟合；随后 mesh shader 做 3×3 PCF 采样，并把深度与带偏移的值比较（`bias` 取决于
+法线相对太阳的夹角 —— 斜面上的「条纹」更少）。设置项：**Shadows**（开/关）和 **Shadow map**
+1024/2048/4096 —— 同样在 Lighting (3D) 里，同样写进 `config.ini`。阴影由所有 3D mesh 一起合成，
+并落在包括地面在内的一切东西上。
 
-**序列化**（场景/预设文件）：`Is3D`、`Pos3`、`Rot3`、`Scale3`、`MeshType`
-（0=Cube、1=Plane、2=Sphere、3=OBJ）、`MeshPath`、`MeshTex`、`MeshColor`、`CamPersp`、`CamFov`。
-旧文件无需改动即可加载 —— 那里 `Is3D` 默认为 0。
+**3D 场景中的游戏相机**：Camera 组件上有 **Perspective (3D)** 和 **Field of View**；
+相机的姿态取自实体的 **Position 3 / Rotation 3**（眼位在 `pos3`，视线方向来自 rotation），
+也就是说相机可以像普通 3D 物体一样被移动和旋转，用脚本或 gizmo 都行。Follow/Level Bounds
+是 2D 机制，在 3D 分支里不参与。绘制 mesh 之前会清空深度缓冲，因此立方体之间不会互相「透视穿透」。
+
+**序列化**：文件头部的一行 `Scene3D: 0|1`，加上实体关键字 `Is3D`、`Pos3`、`Rot3`、`Scale3`、
+`MeshType`（0=Cube、1=Plane、2=Sphere、3=OBJ）、`MeshPath`、`MeshTex`、`MeshColor`、`CamPersp`、
+`CamFov`。旧文件照常加载（`Is3D: 0`、`Scene3D: 0`）。
 
 **游戏打包**：`MeshPath` 里的 `.obj` 与 `MeshTex` 里的图片会被加入场景的依赖列表，
 也就是和纹理、音频一样被复制/加密（见第 11 节）。
 
-**3D 后续计划**：阴影、骨骼动画、用 glTF 取代 OBJ、把 Mesh Renderer 从 Sprite 拆分出来、3D 物理、
-正交的 3D 视图（前/顶/侧）。
+**示例**：`assets/scenes/3d_demo.scene` —— 一台带阴影的透视相机下的一块地面、三个立方体和一个球
+（在 Project 里双击打开）。
+
+**3D 后续计划**：3D 物理（面向三轴的 Rigidbody/Collider）、骨骼动画、用 glTF 取代 OBJ、
+把 Mesh Renderer 从 Sprite 拆成独立组件、正交视图模式、多光源照明。

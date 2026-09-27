@@ -22,12 +22,19 @@ void Scene::Render(Camera* camera, SceneManager* sceneManager, int width, int he
     m_ViewportFB->Bind();
 
     m_Renderer->BeginScene(camera, width, height);
-    m_Renderer->RenderGrid(camera);
-    m_Renderer->RenderEntities3D(sceneManager->GetEntities(), camera);
-    m_Renderer->RenderTilemaps(sceneManager->GetEntities(), camera);
-    m_Renderer->RenderEntities(sceneManager->GetEntities(), camera);
-    m_Renderer->RenderParticles(sceneManager->GetEntities(), camera);
-    m_Renderer->RenderColliders(sceneManager->GetEntities(), camera);
+    auto& ents = sceneManager->GetEntities();
+    if (m_Editor3D) {
+        // 3D-сцена: плоские сетка/спрайты/тайлмапы/коллайдеры не рисуем — это другой мир
+        m_Renderer->RenderGrid3D(camera);
+        m_Renderer->RenderEntities3D(ents, camera);
+    } else {
+        m_Renderer->RenderGrid(camera);
+        m_Renderer->RenderEntities3D(ents, camera);
+        m_Renderer->RenderTilemaps(ents, camera);
+        m_Renderer->RenderEntities(ents, camera);
+        m_Renderer->RenderParticles(ents, camera);
+        m_Renderer->RenderColliders(ents, camera);
+    }
     if (m_Gizmo3DVisible) {
         m_Renderer->RenderGizmo3D(m_Gizmo3DCenter, m_Gizmo3DLen, m_Gizmo3DMode, m_Gizmo3DGrabbed, camera);
     } else if (!m_Editor3D) {
@@ -35,7 +42,7 @@ void Scene::Render(Camera* camera, SceneManager* sceneManager, int width, int he
                                  camera, width, height, m_GizmoMode, m_GizmoAxis);
     }
 
-    if (gameCamera) {
+    if (gameCamera && !m_Editor3D) {
         // Рамка того, что видит game-камера (как в Unity)
         float viewHeight = 1080.0f * gameCamera->GetZoom();
         float viewWidth = viewHeight * gameCamera->GetAspectRatio();

@@ -160,15 +160,17 @@ void SceneSerializer::Save(SceneManager* sceneManager, const std::string& path) 
     const auto& entities = sceneManager->GetEntities();
     file << "Astra Scene v2\n";
     file << "EntityCount: " << entities.size() << "\n";
+    file << "Scene3D: " << (sceneManager->Is3D() ? 1 : 0) << "\n";
     auto indexOf = BuildIndexOf(entities);
     for (const auto& e : entities) WriteEntity(file, e, indexOf);
 }
 
-bool SceneSerializer::SaveEntities(const std::vector<Entity>& entities, const std::string& path) {
+bool SceneSerializer::SaveEntities(const std::vector<Entity>& entities, const std::string& path, bool scene3D) {
     std::ofstream file(path);
     if (!file.is_open()) return false;
     file << "Astra Scene v2\n";
     file << "EntityCount: " << entities.size() << "\n";
+    file << "Scene3D: " << (scene3D ? 1 : 0) << "\n";
     auto indexOf = BuildIndexOf(entities);
     for (const auto& e : entities) WriteEntity(file, e, indexOf);
     return file.good();
@@ -176,10 +178,12 @@ bool SceneSerializer::SaveEntities(const std::vector<Entity>& entities, const st
 
 bool SceneSerializer::Load(SceneManager* sceneManager, const std::string& path) {
     std::vector<Entity> protos;
-    if (!LoadEntities(path, protos)) return false;
+    bool scene3D = false;
+    if (!LoadEntities(path, protos, &scene3D)) return false;
 
     sceneManager->Clear();
     for (const auto& e : protos) sceneManager->AddEntity(e); // AddEntity выдаёт реальные id по порядку
+    sceneManager->Set3D(scene3D);
 
     // parentId пока ссылается на временные id (index+1) — переводим в реальные
     auto& ents = sceneManager->GetEntities();
@@ -196,7 +200,7 @@ bool SceneSerializer::Load(SceneManager* sceneManager, const std::string& path) 
     return true;
 }
 
-bool SceneSerializer::LoadEntities(const std::string& path, std::vector<Entity>& out) {
+bool SceneSerializer::LoadEntities(const std::string& path, std::vector<Entity>& out, bool* out3D) {
     std::string text = AssetIO::ReadAll(path);
     if (text.empty()) {
         std::cerr << "Failed to load: " << path << "\n";
@@ -213,6 +217,19 @@ bool SceneSerializer::LoadEntities(const std::string& path, std::vector<Entity>&
 
     out.clear();
     std::getline(file, line); // EntityCount
+    if (out3D) {
+        *out3D = false;
+        std::streampos pos = file.tellg();
+        std::getline(file, line);
+        if (line.rfind("Scene3D:", 0) == 0) {
+            int v = 0;
+            std::istringstream iss(line.substr(8));
+            iss >> v;
+            *out3D = v != 0;
+        } else {
+            file.seekg(pos);   // старых файлов это касается: сразу идёт ENTITY
+        }
+    }
 
     Entity current;
     bool inEntity = false;

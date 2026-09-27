@@ -55,6 +55,8 @@ public:
 
     bool IsAnyPopupOpen() const { return m_PopupOpen; }
     bool Is3DEditor() const { return m_3DEditor; }
+    // курсор над компасом вида — клики сцены (выделение/гизмо) в этот кадр не проходят
+    bool IsCompassHot() const { return m_CompassHot; }
 
     int GetCurrentTile() const { return m_CurrentTile; }
 
@@ -113,6 +115,7 @@ private:
 
     // Видимость панелей
     bool m_3DEditor = false;
+    bool m_CompassHot = false;
     bool m_ShowScene = true;
     bool m_ShowGame = true;
     bool m_ShowHierarchy = true;

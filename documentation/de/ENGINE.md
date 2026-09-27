@@ -7,7 +7,7 @@ Inhaltsverzeichnis: [Build](#1-build-und-start) · [Projekte](#2-projekte) · [O
 [Entities](#4-entities-und-komponenten) · [Szenen](#5-szenen) · [Assets](#6-assets-und-import) ·
 [UI](#7-spieloberfläche) · [Undo](#8-undo--redo) · [Tastenkürzel](#9-tastenkürzel) ·
 [Einstellungen](#10-engine-einstellungen) · [Build](#11-spiel-bauen-und-player) · [Konsole](#12-konsole) ·
-[3D](#14-3d-modus)
+[3D](#14-3d-szenen)
 
 ---
 
@@ -228,56 +228,83 @@ die Zwischenablage; Klick auf eine Zeile — diese Zeile kopieren. Der Fehlerzä
 - `assets/scripts/rotate.cpp`, `player.cpp`, `examples/black_hole/orbit_planet.cpp`.
 - `examples/` — Quelltexte der Beispiele; `templates/default_project` — Projektvorlage.
 
-## 14. 3D-Modus
+## 14. 3D-Szenen
 
-Die erste Ausbaustufe: perspektive Kamera, Mesh-Primitive, `.obj`-Import und einfaches Licht.
-Die 2D-Werkzeuge (Sprites, UI, Tilemap, Kollider, Skripte) laufen daneben unverändert weiter.
+3D ist eine **Eigenschaft der Szene**, keine »Zusatzschicht« über dem 2D: `View ▸ 3D Scene`
+(in der Datei die Zeile `Scene3D: 1`). Eine 3D-Szene hat ihren eigenen Boden, ihre eigene
+Kamera-Navigation und ihren eigenen Werkzeugkasten; flache Sprites, Tilemaps, Kollider, der Rahmen
+der 2D-Kamera und die UI-Vorschau werden dort in der Scene nicht gezeichnet, und das Werkzeug Tile
+ist ausgeblendet. Die 2D-Szenen sind völlig unverändert.
 
-**Einschalten**: `View ▸ 3D Mode`. Der Scene-Viewport wird dreidimensional:
-- **Rechtsklick + Mausbewegung** — Orbit um den Fokus (Pitch auf ±89° begrenzt);
-- **Mausrad** — Abstand zum Fokus (50…40000 Welteinheiten);
-- **Mittlere Maustaste** (oder Linksklick mit dem **Hand**-Werkzeug, Taste Q) — Pan: der Fokus
-  gleitet in der Bildebene;
-- **Linksklick** — Mesh-Objekt per Klick auswählen: vom Kameratrahl wird die AABB jedes Meshes der Szene
-  geprüft (das nächste gewinnt); ein Klick ins Leere hebt die Auswahl auf;
-- **F** — den Orbit-Fokus auf die ausgewählte Entity setzen.
+**Navigation in der 3D-Szene** (wie in Unity, nicht wie beim 2D-Pannen):
+- **Rechtsklick + Mausbewegung** — umschauen (yaw/pitch, der Pitch ist auf ±89,5° begrenzt);
+- **WASD + Q/E bei gehaltenem Rechtsklick** — fliegen: W/S vor und zurück auf der Horizontalen,
+  A/D seitlich, E/Q hoch/runter, **Shift** — ×4 Tempo, **Ctrl** — ×0,25 (solange der Rechtsklick
+  gehalten wird, schalten W/E/R/Q nicht die Werkzeuge um);
+- **Mausrad** — ein Schub entlang der Blickrichtung (schneller, wenn man weit weg ist);
+- **Mittelklick** (oder Linksklick mit dem Werkzeug **Hand**, Q) — Pannen in der Bildebene;
+- **Linksklick** — ein Mesh-Objekt auswählen: von der Kamera geht ein Strahl gegen die AABB des
+  Meshes, näher an der Kamera gewinnt; ein Klick auf freie Fläche hebt die Auswahl auf;
+- **F** — auf die gewählte Entity zufliegen (die Distanz kommt aus ihrem Scale);
+- **NUMPAD 1/2/3/4/5/7** — die Ansichten Front/Back/Right/Left/Top/Bottom, **6** — perspektivisch;
+- **Kompass** oben rechts in der Scene: die Achsen X/Y/Z sind anklickbar (und die Mitte setzt auf
+  Perspektive zurück).
 
-**Gizmo 3D**: am ausgewählten 3D-Objekt werden Achsen (Move), Ringe (Rotate) oder Achsen mit Griffen
-(Scale) gezeichnet — umgeschaltet mit den Werkzeugen **W / E / R** oder den Buttons der Toolbar.
-- Move: an der Achse X/Y/Z ziehen = verschieben nur längs dieser Achse; die Raute in der Mitte ziehen =
-  freie Bewegung in der Bildebene;
-- Rotate: einen Ring ziehen = Drehung um die zugehörige Achse, der Winkel wird in der Ringebene gemessen;
-- Scale: das Quadrat am Ende einer Achse ziehen = Skala nur dieser Achse; die Mitte ziehen = gleichmäßig.
-- **Ctrl** — Einrasten: Positionen an `GridSize`, Winkel an `SnapDegrees`. Das Gizmo behält eine konstante
-  Bildschirmgröße; Griffe, die kantig (= flach) gesehen werden, fangen keine Klicks ab
-  (der sichtbarste gewinnt).
-2D-Gizmo sowie 2D-Maus-Panning/-Zoom bleiben in diesem Modus abgeschaltet, damit sie die Navigation
-nicht stören.
+**Gizmo 3D**: am gewählten 3D-Objekt werden Achsen (Move), Ringe (Rotate) oder Achsen mit Griffen
+(Scale) gezeichnet — umgeschaltet mit den Werkzeugen **W / E / R** oder den Buttons der Symbolleiste.
+- Move: an der Achse X/Y/Z ziehen — das Objekt bewegt sich nur längs dieser Achse; die Raute in der
+  Mitte ziehen — freie Bewegung in der Bildebene;
+- Rotate: einen Ring ziehen — Drehung um die zugehörige Achse, der Winkel wird in der Ringebene
+  gemessen;
+- Scale: das Quadrat am Ende einer Achse ziehen — der Scale nur dieser Achse; die Mitte ziehen —
+  gleichmäßig.
+- **Ctrl** — Snap: Positionen an `GridSize`, Winkel an `SnapDegrees`. Das Gizmo bleibt auf dem
+  Bildschirm gleich groß; Griffe, die von der Kante her »verwischt« aussehen, fangen keinen Klick ab
+  (es gewinnt der besser sichtbare).
 
-**Erzeugen**: `GameObject ▸ Create 3D ▸ Cube / Plane / Sphere / OBJ Model`.
-Im Inspector hat jede Entity die Checkbox **3D Object**: Position 3 / Rotation 3 (in Grad,
-Reihenfolge X→Y→Z) / Scale 3, **Mesh** (Cube/Plane/Sphere/OBJ), `.obj`-Pfad, Mesh Texture, Mesh Color.
-`transform.position/scale` bleiben bei einer 3D-Entity erhalten — sie gelten weiter für das 2D-Erbe und
-die Physik; die Position im 3D kommt aus `pos3`.
+**Boden und Grid**: Das Grid liegt in der XZ-Ebene (Schrittweite `GridSize`), folgt unter der Kamera
+mit, und die Achsen X/Z/Y sind eingefärbt. Die Einheiten in der Welt sind dieselben wie im 2D: der
+Würfel per Default misst 100×100×100.
 
-**Licht** — lambertsch: `diffuse = max(dot(n, sun), 0) * LightColor + Ambient`,
+**Erzeugen**: `GameObject ▸ Create 3D ▸ Cube / Plane / Sphere / OBJ Model` (wer in einer 2D-Szene
+ein 3D-Objekt erzeugt, schaltet die Szene automatisch auf 3D um). Im Inspector hat jede Entity die
+Checkbox **3D Object**: Position 3 / Rotation 3 (in Grad, Reihenfolge X→Y→Z) / Scale 3, **Mesh**
+(Cube/Plane/Sphere/OBJ), `.obj`-Pfad, Mesh Texture, Mesh Color. `transform.position/scale` bleiben
+bei einer 3D-Entity erhalten — sie werden für das 2D-Erbe gebraucht, die Position im 3D kommt aus
+`pos3`.
+
+**Licht** — lambertsch mit Schatten: `diffuse = max(dot(n, sun), 0) * shadow + Ambient`,
 Sonnenrichtung/-farbe und Ambient werden in Edit ▸ Settings ▸ Lighting (3D) gesetzt und in
 `~/.astra/config.ini` gespeichert. Die Textur wird mit Farbe und Licht multipliziert; ohne Textur
 entsteht ein einfarbiges Material. Die Normalen der Primitive erzeugt die Engine selbst, die der
-`.obj` stammen aus der Datei (`vn`) oder werden je Fläche neu berechnet.
+`.obj` stammen aus der Datei (`vn`) oder werden aus den Flächen neu berechnet.
 
-**Spielkamera**: Die Camera-Komponente bietet **Perspective (3D)** und **Field of View**.
-Der Game-View rendert die 3D-Entities durch diese Kamera (2D-Objekte bleiben wie bisher bei der
-orthografischen). Der Depth-Buffer wird vor den Meshes gelöscht, deshalb scheinen Würfel nicht
-mehr durcheinander hindurch.
+**Schatten der Sonne**: Ein eigener Durchgang schreibt eine Tiefenkarte (depth map) aus einer
+Ortho-Kamera, die an die Ausdehnung des 3D-Inhalts angepasst wird; danach holt der Mesh-Shader eine
+3×3-PCF-Abtastung und vergleicht die Tiefe mit einer Verschiebung (der `bias` hängt vom Winkel der
+Normalen zur Sonne ab — auf schrägen Flächen gibt es weniger »Streifen«). Die Einstellungen
+**Shadows** (an/aus) und **Shadow map** 1024/2048/4096 sitzen ebenfalls in Lighting (3D) und
+ebenfalls in `config.ini`. Die Schatten entstehen aus allen 3D-Meshes zusammen und fallen auf
+alles, auch auf den Boden.
 
-**Serialisierung** (Scene- bzw. Prefab-Datei): `Is3D`, `Pos3`, `Rot3`, `Scale3`, `MeshType`
-(0=Cube, 1=Plane, 2=Sphere, 3=OBJ), `MeshPath`, `MeshTex`, `MeshColor`, `CamPersp`, `CamFov`.
-Alte Dateien laden unverändert — dort steht `Is3D: 0` als Standard.
+**Die Spielkamera in der 3D-Szene**: die Camera-Komponente hat **Perspective (3D)** und
+**Field of View**; die Pose der Kamera kommt aus **Position 3 / Rotation 3** der Entity (das Auge
+in `pos3`, die Blickrichtung aus der Rotation) — die Kamera lässt sich also wie ein gewöhnliches
+3D-Objekt bewegen und drehen, per Skript oder Gizmo. Follow/Level Bounds sind 2D-Mechaniken, im
+3D-Zweig sind sie nicht beteiligt. Der Depth-Buffer wird vor den Meshes gelöscht, deshalb
+»scheinen« Würfel nicht mehr durcheinander hindurch.
+
+**Serialisierung**: die Zeile `Scene3D: 0|1` im Dateikopf plus die Entity-Schlüssel `Is3D`, `Pos3`,
+`Rot3`, `Scale3`, `MeshType` (0=Cube, 1=Plane, 2=Sphere, 3=OBJ), `MeshPath`, `MeshTex`, `MeshColor`,
+`CamPersp`, `CamFov`. Alte Dateien laden unverändert — dort stehen `Is3D: 0` und `Scene3D: 0`.
 
 **Spiel-Build**: Die `.obj` aus `MeshPath` und das Bild aus `MeshTex` rücken in die
-Abhängigkeitsliste der Szene, werden also genauso kopiert und verschlüsselt wie Texturen und Sounds
+Abhängigkeitsliste der Szene, sie werden also genauso kopiert/verschlüsselt wie Texturen und Sounds
 (Abschnitt 11).
 
-**Weiterer 3D-Plan**: Schatten, Skelett-Animation, glTF statt OBJ, Mesh Renderer getrennt vom Sprite,
-3D-Physik, orthografische 3D-Ansichten (vorn/oben/seitlich).
+**Beispiel**: `assets/scenes/3d_demo.scene` — Boden, drei Würfel und eine Kugel unter einer
+Perspektivkamera mit Schatten (per Doppelklick im Project-Fenster öffnen).
+
+**Weiterer 3D-Plan**: 3D-Physik (Rigidbody/Collider für drei Achsen), Skelett-Animation, glTF statt
+OBJ, Mesh Renderer als eigene Komponente getrennt vom Sprite, ein orthografischer Ansichtmodus,
+Beleuchtung durch mehrere Lichtquellen.

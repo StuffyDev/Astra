@@ -26,6 +26,11 @@ public:
 
     void Run();
 
+    // Навигация 3D-вида (нужна компасу в углу Scene-вью)
+    float SceneViewYaw() const { return m_FlyYaw; }
+    float SceneViewPitch() const { return m_FlyPitch; }
+    void SceneViewLook(float yaw, float pitch);   // смотреть на точку фокуса под новыми углами
+
     // Undo/redo редактора: снапшоты сцены (GUI пушит «до изменения», горячие клавиши — Ctrl+Z/Ctrl+Shift+Z)
     void PushUndoSnapshot(const SceneManager::SceneSnapshot& snap);
     bool Undo();
@@ -49,9 +54,11 @@ private:
 
     float m_PhysicsAccumulator = 0.0f;
     bool m_ScenePanning = false;
-    bool m_OrbitInit = false;
-    glm::vec3 m_OrbitFocus = glm::vec3(0.0f);
-    float m_OrbitYaw = 40.0f, m_OrbitPitch = 28.0f, m_OrbitDist = 1500.0f;
+    bool m_FlyInit = false;
+    glm::vec3 m_FlyPos = glm::vec3(0.0f, 300.0f, 1400.0f);
+    float m_FlyYaw = 0.0f, m_FlyPitch = 18.0f;   // pitch>0 — смотреть вниз
+    float m_FlyRefDist = 1400.0f;                // расстояние до «точки интереса» (пан/виды)
+    float m_FlySpeed = 900.0f;                   // мировых единиц в секунду
     std::unordered_set<uint32_t> m_AudioStarted; // playOnAwake уже запущен (в этом Play)
 
     AppOptions m_Options;
@@ -77,6 +84,8 @@ private:
                           const glm::vec2& viewportSize);
     void UpdateGizmoDrag3D(const glm::vec2& mouse, const glm::vec2& viewportSize);
     void PickEntity3D(const glm::vec2& mouse, const glm::vec2& viewportSize);
+    glm::vec3 SceneViewFocusPoint() const;
+    void FocusOnSelection();
 
     bool m_G3DDragging = false;
     int m_G3DGrab = -1;      // 0..2 — ось, 3 — центр (free move / uniform scale)

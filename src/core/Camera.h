@@ -15,16 +15,28 @@ public:
     void SetAspectRatio(float aspect) { m_AspectRatio = aspect; }
     float GetAspectRatio() const { return m_AspectRatio; }
 
-    // Орбита в редакторе: взгляд вокруг фокуса (3D-вид)
-    void SetOrbit(const glm::vec3& focus, float yawDeg, float pitchDeg, float dist) {
-        m_Orbit = true; m_OrbitFocus = focus; m_OrbitYaw = yawDeg; m_OrbitPitch = pitchDeg; m_OrbitDist = dist;
+    // Полётная редакторская камера (стиль Unity): положение + yaw/pitch (в градусах).
+    // forward = (-cos(p)sin(y), -sin(p), -cos(p)cos(y)); pitch>0 = смотреть вниз.
+    void SetFly(const glm::vec3& eye, float yawDeg, float pitchDeg) {
+        m_Fly = true; m_Eye = eye; m_FlyYaw = yawDeg; m_FlyPitch = pitchDeg;
     }
-    void ClearOrbit() { m_Orbit = false; }
-    bool IsOrbit() const { return m_Orbit; }
-    glm::vec3 GetOrbitFocus() const { return m_OrbitFocus; }
-    float GetOrbitYaw() const { return m_OrbitYaw; }
-    float GetOrbitPitch() const { return m_OrbitPitch; }
-    float GetOrbitDist() const { return m_OrbitDist; }
+    glm::vec3 GetEyePosition() const { return m_Eye; }
+    float GetFlyYaw() const { return m_FlyYaw; }
+    float GetFlyPitch() const { return m_FlyPitch; }
+
+    // Орбита как частный случай: глаз в focus - forward*dist (взгляд всегда на focus)
+    void SetOrbit(const glm::vec3& focus, float yawDeg, float pitchDeg, float dist) {
+        glm::vec3 f = ForwardOf(yawDeg, pitchDeg);
+        SetFly(focus - f * dist, yawDeg, pitchDeg);
+    }
+    void ClearOrbit() { m_Fly = false; }
+    bool IsOrbit() const { return m_Fly; }
+
+    // Базис камеры в мировых координатах
+    static glm::vec3 ForwardOf(float yawDeg, float pitchDeg);
+    glm::vec3 Forward() const { return ForwardOf(m_FlyYaw, m_FlyPitch); }
+    glm::vec3 Right() const;
+    glm::vec3 Up() const;
 
     void SetPerspective(bool on) { m_Perspective = on; }
     bool IsPerspective() const { return m_Perspective; }
@@ -59,7 +71,8 @@ private:
     float m_ViewHeight = 1080.0f;
     bool m_Perspective = false;
     float m_Fov = 50.0f;
-    bool m_Orbit = false;
-    glm::vec3 m_OrbitFocus = glm::vec3(0.0f);
-    float m_OrbitYaw = 40.0f, m_OrbitPitch = 28.0f, m_OrbitDist = 1500.0f;
+    // 3D-камера редактора: глаз + углы обзора (градусы)
+    bool m_Fly = false;
+    glm::vec3 m_Eye = glm::vec3(0.0f, 0.0f, 1000.0f);
+    float m_FlyYaw = 0.0f, m_FlyPitch = 0.0f;
 };

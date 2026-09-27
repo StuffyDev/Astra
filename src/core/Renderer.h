@@ -23,6 +23,8 @@ public:
 
     void BeginScene(Camera* camera, int width, int height);
     void RenderGrid(Camera* camera);
+    // Пол на XZ в 3D-сцене (+ цветные оси X/Z)
+    void RenderGrid3D(Camera* camera);
     void RenderEntities(const std::vector<Entity>& entities, Camera* camera);
     void RenderTilemaps(const std::vector<Entity>& entities, Camera* camera);
     void RenderEntities3D(const std::vector<Entity>& entities, Camera* camera);
@@ -56,6 +58,13 @@ private:
     std::unique_ptr<Shader> m_SpriteTextureShader;
     std::unique_ptr<Shader> m_CircleTextureShader;
     std::unique_ptr<Shader> m_Mesh3DShader;
+    std::unique_ptr<Shader> m_ShadowShader;
+    GLuint m_ShadowFBO = 0, m_ShadowTex = 0;
+    int m_ShadowTexSize = 0;
+    void SetupShadowMap(int size);
+    // Орто-камера солнца, подогнанная под габариты 3D-контента
+    glm::mat4 LightViewProj(const std::vector<Entity>& entities, float& outRadius);
+    void RenderShadowMap(const std::vector<Entity>& entities, const glm::mat4& lightVP);
     std::unique_ptr<Shader> m_Line3DShader;
 
     struct Mesh3D {
@@ -68,6 +77,7 @@ private:
     std::unordered_map<std::string, Mesh3D> m_ObjCache;
     Mesh3D MakeMesh3D(const std::vector<float>& verts, const std::vector<uint32_t>& idx);
     const Mesh3D& GetObjMesh(const std::string& path);
+    const Mesh3D* MeshForEntity(const Entity& e);
 
     GLuint m_GridVAO = 0, m_GridVBO = 0;
     GLuint m_QuadVAO = 0, m_QuadVBO = 0, m_QuadEBO = 0;

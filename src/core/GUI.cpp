@@ -307,7 +307,10 @@ static uint64_t ComputeSignatureFor(const std::vector<Entity>& ents) {
 }
 
 static uint64_t ComputeSceneSignature(SceneManager* sm) {
-    return ComputeSignatureFor(sm->GetEntities());
+    uint64_t h = ComputeSignatureFor(sm->GetEntities());
+    const bool s3d = sm->Is3D();
+    FnvUpdate(h, &s3d, sizeof(s3d));
+    return h;
 }
 
 // Хлебные крошки от корня rootDir (например "assets") до path
@@ -370,6 +373,8 @@ void GUI::LoadUserSettings() {
         else if (k == "light_dir") sscanf(v.c_str(), "%f %f %f", &AstraPrefs::LightDir.x, &AstraPrefs::LightDir.y, &AstraPrefs::LightDir.z);
         else if (k == "light_color") sscanf(v.c_str(), "%f %f %f", &AstraPrefs::LightColor.x, &AstraPrefs::LightColor.y, &AstraPrefs::LightColor.z);
         else if (k == "ambient") AstraPrefs::Ambient = (float)num();
+        else if (k == "shadows") AstraPrefs::Shadows = num() != 0;
+        else if (k == "shadow_size") AstraPrefs::ShadowSize = (int)num();
     }
 }
 
@@ -392,7 +397,9 @@ void GUI::SaveUserSettings() {
       << "time_scale=" << Scripting::DefaultTimeScale() << "\n"
       << "light_dir=" << AstraPrefs::LightDir.x << " " << AstraPrefs::LightDir.y << " " << AstraPrefs::LightDir.z << "\n"
       << "light_color=" << AstraPrefs::LightColor.x << " " << AstraPrefs::LightColor.y << " " << AstraPrefs::LightColor.z << "\n"
-      << "ambient=" << AstraPrefs::Ambient << "\n";
+      << "ambient=" << AstraPrefs::Ambient << "\n"
+      << "shadows=" << (AstraPrefs::Shadows ? 1 : 0) << "\n"
+      << "shadow_size=" << AstraPrefs::ShadowSize << "\n";
 }
 
 void GUI::ApplyTheme() {
@@ -583,7 +590,19 @@ void GUI::UpdateGameCamera(SceneManager* sceneManager) {
 
     Entity* chosen = mainCam ? mainCam : anyCam;
     m_HasGameCamera = chosen != nullptr;
-    if (chosen) {
+    if (chosen && sceneManager->Is3D() && chosen->camera.perspective) {
+        // 3D-сцена: камера-сущность задаёт позу в мире (pos3 + поворот), follow/bounds — 2D-механики
+        glm::vec3 eye = chosen->pos3;
+        if (chosen->parentId != 0) {
+            const Entity* par = Transforms::FindById(sceneManager->GetEntities(), chosen->parentId);
+            if (par) eye += par->is3D ? par->pos3 : glm::vec3(par->transform.position, 0.0f);
+        }
+        eye += glm::vec3(Scripting::ShakeOffset(), 0.0f);
+        m_GameCamera->SetFly(eye, chosen->rot3.y, -chosen->rot3.x);
+        m_GameCamera->SetPerspective(true);
+        m_GameCamera->SetFov(chosen->camera.fov);
+        m_GameCamera->SetAspectRatio(m_GameSize.x / std::max(m_GameSize.y, 1.0f));
+    } else if (chosen) {
         // мировая позиция с учётом parent-цепочки: камера-ребёнок следует за родителем
         glm::vec2 pos = Transforms::WorldPosition(entities, *chosen) + chosen->camera.offset;
         if (chosen->camera.followTargetId != 0) {
@@ -856,11 +875,15 @@ void GUI::HandleHotkeys(EditorContext& ctx) {
         return;
     }
     if (!ctrl && !shift) {
-        if (in.WasKeyPressed(GLFW_KEY_W)) ctx.scene->SetGizmoMode(0);
-        if (in.WasKeyPressed(GLFW_KEY_E)) ctx.scene->SetGizmoMode(1);
-        if (in.WasKeyPressed(GLFW_KEY_R)) ctx.scene->SetGizmoMode(2);
-        if (in.WasKeyPressed(GLFW_KEY_Q)) ctx.scene->SetGizmoMode(3);
-        if (in.WasKeyPressed(GLFW_KEY_T)) ctx.scene->SetGizmoMode(4);
+        // в 3D-сцене ПКМ занята под полёт: пока она зажата, W/E/R/Q — движение, а не инструменты
+        const bool flying = m_3DEditor && in.IsMouseButtonDown(GLFW_MOUSE_BUTTON_RIGHT);
+        if (!flying) {
+            if (in.WasKeyPressed(GLFW_KEY_W)) ctx.scene->SetGizmoMode(0);
+            if (in.WasKeyPressed(GLFW_KEY_E)) ctx.scene->SetGizmoMode(1);
+            if (in.WasKeyPressed(GLFW_KEY_R)) ctx.scene->SetGizmoMode(2);
+            if (in.WasKeyPressed(GLFW_KEY_Q)) ctx.scene->SetGizmoMode(3);
+            if (in.WasKeyPressed(GLFW_KEY_T)) ctx.scene->SetGizmoMode(4);
+        }
     }
 }
 
@@ -906,6 +929,8 @@ void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
     }
 
     if (m_ThemeDirty) { ApplyTheme(); m_ThemeDirty = false; }
+    // «3D-сцена» — свойство сцены, а не вида: синхронизируем локальный флаг с SceneManager
+    m_3DEditor = sceneManager->Is3D();
     static float fpsEma = 60.0f;
     fpsEma = fpsEma * 0.95f + (1.0f / std::max(deltaTime, 1e-5f)) * 0.05f;
     m_FpsEma = fpsEma;
@@ -1005,6 +1030,10 @@ void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
             }
             if (ImGui::BeginMenu("Create 3D")) {
                 auto add3D = [&](const char* name, int meshType) {
+                    if (!sceneManager->Is3D()) {   // 3D-объект в 2D-сцене = сцена становится 3D
+                        sceneManager->Set3D(true);
+                        m_3DEditor = true;
+                    }
                     Entity e;
                     e.name = name;
                     e.is3D = true;
@@ -1055,7 +1084,12 @@ void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
             if (ImGui::MenuItem("Project", nullptr, m_ShowProject)) { m_ShowProject = !m_ShowProject; m_RebuildDockLayout = true; }
             if (ImGui::MenuItem("Script Editor", nullptr, m_ShowCodeWindow)) m_ShowCodeWindow = !m_ShowCodeWindow;
             if (ImGui::MenuItem("Build Settings", nullptr, m_ShowBuildDialog)) m_ShowBuildDialog = !m_ShowBuildDialog;
-            if (ImGui::MenuItem("3D Mode", nullptr, m_3DEditor)) m_3DEditor = !m_3DEditor;
+            if (ImGui::MenuItem("3D Scene", nullptr, m_3DEditor)) {
+                // флаг входит в подпись сцены → dirty и undo-снапшот «до правки» возникают сами
+                sceneManager->Set3D(!sceneManager->Is3D());
+                m_3DEditor = sceneManager->Is3D();
+                if (m_3DEditor && ctx.scene->GetGizmoMode() == 4) ctx.scene->SetGizmoMode(0);
+            }
             ImGui::EndMenu();
         }
 
@@ -1105,12 +1139,13 @@ void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
             ImGui::PopStyleColor(2);
         }
 
-        // Инструменты сцены: W/E/R/Q
+        // Инструменты сцены: W/E/R/Q (+T только в 2D-сцене)
         ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
         static const char* toolNames[5] = { "Move", "Rotate", "Scale", "Hand", "Tile" };
         static const char* toolKeys[5] = { "W", "E", "R", "Q", "T" };
         int gmode = scene->GetGizmoMode();
-        for (int i = 0; i < 5; i++) {
+        const int toolCount = m_3DEditor ? 4 : 5;
+        for (int i = 0; i < toolCount; i++) {
             ImGui::SameLine();
             char label[32];
             snprintf(label, sizeof(label), "%s (%s)", toolNames[i], toolKeys[i]);
@@ -1187,8 +1222,47 @@ void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
             ImVec2 mousePos = ImGui::GetMousePos();
             m_SceneMousePos = glm::vec2(mousePos.x - m_SceneImagePos.x, mousePos.y - m_SceneImagePos.y);
 
+            // Компас вида в углу 3D-сцены: кликабельные оси = виды Front/Top/Right
+            m_CompassHot = false;
+            if (m_3DEditor && ctx.app && avail.x > 140.0f && avail.y > 140.0f) {
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                const float R = 26.0f;
+                const ImVec2 c(m_SceneImagePos.x + m_SceneSize.x - R - 26.0f,
+                               m_SceneImagePos.y + R + 26.0f);
+                m_CompassHot = ImGui::IsMouseHoveringRect(ImVec2(c.x - R - 14, c.y - R - 14),
+                                                          ImVec2(c.x + R + 14, c.y + R + 14));
+                glm::vec3 fwd = camera->Forward(), rgt = camera->Right(), upv = camera->Up();
+                const glm::vec3 axes[3] = { {1,0,0}, {0,1,0}, {0,0,1} };
+                const ImU32 cols[3] = { IM_COL32(235,95,95,255), IM_COL32(120,220,100,255),
+                                        IM_COL32(105,155,255,255) };
+                const char* names[3] = { "X", "Y", "Z" };
+                const float views[3][2] = { {90.0f, 0.0f}, {0.0f, 89.5f}, {0.0f, 0.0f} };
+                dl->PathArcTo(c, R + 10.0f, 0.0f, 6.2832f, 28);
+                dl->PathStroke(IM_COL32(255, 255, 255, 28), false, 1.0f);
+                for (int i = 0; i < 3; i++) {
+                    glm::vec2 dir(glm::dot(axes[i], rgt), -glm::dot(axes[i], upv));
+                    float depth = glm::dot(axes[i], fwd);          // >0 — ось уходит от камеры
+                    if (glm::length(dir) < 1e-3f) dir = glm::vec2(0.0f, -1.0f);
+                    else dir = glm::normalize(dir);
+                    ImVec2 p(c.x + dir.x * R, c.y + dir.y * R);
+                    ImU32 col = depth > 0.0f ? (cols[i] & 0x00FFFFFF) | (80u << 24) : cols[i];
+                    dl->AddLine(c, p, col, 1.6f);
+                    dl->AddCircleFilled(p, 8.5f, col);
+                    dl->AddText(ImVec2(p.x - 4.0f, p.y - 7.0f), IM_COL32(18, 18, 20, 255), names[i]);
+                    ImGui::SetCursorScreenPos(ImVec2(p.x - 11.0f, p.y - 11.0f));
+                    ImGui::PushID(i);
+                    if (ImGui::InvisibleButton("axis", ImVec2(22.0f, 22.0f)))
+                        ctx.app->SceneViewLook(views[i][0], views[i][1]);
+                    if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                    ImGui::PopID();
+                }
+                ImGui::SetCursorScreenPos(ImVec2(c.x - 8.0f, c.y - 8.0f));
+                if (ImGui::InvisibleButton("persp", ImVec2(16.0f, 16.0f)))
+                    ctx.app->SceneViewLook(40.0f, 22.0f);
+            }
+
             // Предпросмотр runtime UI прямо в Scene: вкладка Game может быть скрыта за Scene
-            {
+            if (!m_3DEditor) {
                 auto& ents = sceneManager->GetEntities();
                 ImDrawList* dl = ImGui::GetWindowDrawList();
                 glm::mat4 vp = camera->GetViewProjectionMatrix();
@@ -3139,6 +3213,15 @@ void GUI::RenderSettings(EditorContext& ctx) {
             ImGui::DragFloat3("Sun direction", &AstraPrefs::LightDir.x, 0.02f, -1.0f, 1.0f);
             ImGui::ColorEdit3("Sun color", &AstraPrefs::LightColor.x);
             ImGui::SliderFloat("Ambient", &AstraPrefs::Ambient, 0.0f, 1.0f, "%.2f");
+            ImGui::Checkbox("Shadows", &AstraPrefs::Shadows);
+            const char* sizes[] = { "1024", "2048", "4096" };
+            int idx = AstraPrefs::ShadowSize >= 4096 ? 2 : (AstraPrefs::ShadowSize >= 2048 ? 1 : 0);
+            if (ImGui::Combo("Shadow map", &idx, sizes, 3)) {
+                static const int kSizes[] = { 1024, 2048, 4096 };
+                AstraPrefs::ShadowSize = kSizes[idx];
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Карта глубины с солнца + 3x3 PCF. Чем больше — тем резче тени, но дороже.");
         }
 
         if (ImGui::CollapsingHeader("Time", ImGuiTreeNodeFlags_DefaultOpen)) {

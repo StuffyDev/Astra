@@ -69,12 +69,51 @@ uniform float u_UseTex;
 uniform vec3 u_LightDir;
 uniform vec3 u_LightColor;
 uniform float u_Ambient;
+uniform mat4 u_LightVP;
+uniform sampler2D u_ShadowMap;
+uniform float u_UseShadow;
+uniform float u_Texel;
+
+float ShadowFactor(vec3 world, vec3 n, vec3 ld) {
+    vec4 sc = u_LightVP * vec4(world, 1.0);
+    if (sc.w <= 0.0) return 1.0;
+    vec3 p = (sc.xyz / sc.w) * 0.5 + 0.5;
+    if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0 || p.z > 1.0) return 1.0;
+    float bias = max(0.0030 * (1.0 - max(dot(n, ld), 0.0)), 0.0008);
+    float lit = 0.0;
+    for (int y = -1; y <= 1; y++)
+        for (int x = -1; x <= 1; x++) {
+            float d = texture(u_ShadowMap, p.xy + vec2(float(x), float(y)) * u_Texel).r;
+            lit += (p.z - bias > d) ? 0.0 : 1.0;
+        }
+    return lit / 9.0;
+}
+
 void main() {
     vec4 tex = mix(vec4(1.0), texture(u_Texture, v_UV), u_UseTex);
     vec3 n = normalize(v_Normal);
-    float ndl = max(dot(n, normalize(u_LightDir)), 0.0);
-    vec3 light = u_LightColor * ndl + vec3(u_Ambient);
+    vec3 ld = normalize(u_LightDir);
+    float ndl = max(dot(n, ld), 0.0);
+    float sh = mix(1.0, ShadowFactor(v_World, n, ld), u_UseShadow);
+    vec3 light = u_LightColor * ndl * sh + vec3(u_Ambient);
     FragColor = vec4(u_Color * tex.rgb * light, tex.a);
+}
+)";
+
+// Проход теней: только глубина, цвет не нужен
+static const char* kShadowVert = R"(
+#version 460 core
+layout(location = 0) in vec3 a_Pos;
+uniform mat4 u_LightVP;
+uniform mat4 u_Model;
+void main() {
+    gl_Position = u_LightVP * u_Model * vec4(a_Pos, 1.0);
+}
+)";
+
+static const char* kShadowFrag = R"(
+#version 460 core
+void main() {
 }
 )";
 
@@ -92,6 +131,7 @@ void Renderer::Init() {
 
     CreateShaders();
     m_Mesh3DShader = std::make_unique<Shader>(kMesh3DVert, kMesh3DFrag);
+    m_ShadowShader = std::make_unique<Shader>(kShadowVert, kShadowFrag);
     m_Line3DShader = std::make_unique<Shader>(kLine3DVert, kLine3DFrag);
     Setup3D();
     SetupGizmo3DBuffers();
@@ -130,6 +170,10 @@ void Renderer::Shutdown() {
     glDeleteBuffers(1, &m_ColliderVBO);
     glDeleteVertexArrays(1, &m_Gizmo3DVAO);
     glDeleteBuffers(1, &m_Gizmo3DVBO);
+    glDeleteFramebuffers(1, &m_ShadowFBO);
+    glDeleteTextures(1, &m_ShadowTex);
+    m_ShadowFBO = m_ShadowTex = 0;
+    m_ShadowTexSize = 0;
 }
 
 // ============ GRID ============
@@ -183,6 +227,35 @@ void Renderer::RenderGrid(Camera* camera) {
     glBindVertexArray(m_GridVAO);
     glDrawArrays(GL_LINES, 0, m_GridCount);
     glBindVertexArray(0);
+}
+
+void Renderer::RenderGrid3D(Camera* camera) {
+    if (!AstraPrefs::ShowGrid) return;
+    const float step = AstraPrefs::GridSize > 0.0f ? AstraPrefs::GridSize : 50.0f;
+    const int half = 32;                              // клеток в каждую сторону
+    const float span = step * half;
+    glm::vec3 eye = camera->GetEyePosition();
+    float cx = std::floor(eye.x / step) * step;       // сетка «липнет» к полу под камерой
+    float cz = std::floor(eye.z / step) * step;
+
+    std::vector<float> lines;
+    lines.reserve((half * 2 + 1) * 12);
+    for (int i = -half; i <= half; i++) {
+        float x = cx + i * step;
+        lines.insert(lines.end(), { x, 0.0f, cz - span, x, 0.0f, cz + span });
+    }
+    for (int i = -half; i <= half; i++) {
+        float z = cz + i * step;
+        lines.insert(lines.end(), { cx - span, 0.0f, z, cx + span, 0.0f, z });
+    }
+    RenderLines3D(lines, glm::vec3(0.26f, 0.26f, 0.29f), camera);
+
+    std::vector<float> axisX = { -span, 0.0f, 0.0f, span, 0.0f, 0.0f };
+    RenderLines3D(axisX, glm::vec3(0.80f, 0.28f, 0.28f), camera);
+    std::vector<float> axisZ = { 0.0f, 0.0f, -span, 0.0f, 0.0f, span };
+    RenderLines3D(axisZ, glm::vec3(0.26f, 0.40f, 0.85f), camera);
+    std::vector<float> axisY = { 0.0f, 0.0f, 0.0f, 0.0f, span * 0.5f, 0.0f };
+    RenderLines3D(axisY, glm::vec3(0.32f, 0.80f, 0.32f), camera);
 }
 
 // ============ QUAD ============
@@ -513,14 +586,107 @@ void Renderer::RenderGizmo3D(const glm::vec3& center, float len, int mode, int g
     // 2D-проходы идут после гизмо и глубины не используют — оставляем тест глубин выключенным
 }
 
+void Renderer::SetupShadowMap(int size) {
+    size = std::clamp(size, 512, 4096);
+    if (m_ShadowFBO && m_ShadowTexSize == size) return;
+    GLint prevFbo = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFbo);   // иначе вернёмся не в Scene-FBO, а в окно
+    if (!m_ShadowFBO) {
+        glGenFramebuffers(1, &m_ShadowFBO);
+        glGenTextures(1, &m_ShadowTex);
+    }
+    glBindTexture(GL_TEXTURE_2D, m_ShadowTex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, size, size, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_ShadowFBO);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_ShadowTex, 0);
+    glDrawBuffers(0, nullptr);   // цвета нет — только глубина
+    glBindFramebuffer(GL_FRAMEBUFFER, prevFbo);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    m_ShadowTexSize = size;
+}
+
+// Орто-камера солнца, подогнанная под габариты 3D-контента (сфера вокруг каждого объекта)
+glm::mat4 Renderer::LightViewProj(const std::vector<Entity>& entities, float& outRadius) {
+    glm::vec3 mn(1e18f), mx(-1e18f);
+    bool any = false;
+    for (const auto& e : entities) {
+        if (!e.is3D || !e.active) continue;
+        any = true;
+        float r = 0.6f * glm::length(e.scale3);
+        mn = glm::min(mn, e.pos3 - glm::vec3(r));
+        mx = glm::max(mx, e.pos3 + glm::vec3(r));
+    }
+    if (!any) { mn = glm::vec3(0.0f); mx = glm::vec3(1000.0f); }
+    glm::vec3 center = (mn + mx) * 0.5f;
+    float radius = std::max(0.5f * glm::length(mx - mn), 200.0f);
+    outRadius = radius;
+
+    glm::vec3 ld = glm::length(AstraPrefs::LightDir) > 0.0f ? glm::normalize(AstraPrefs::LightDir)
+                                                           : glm::vec3(0.0f, 1.0f, 0.0f);
+    float dist = radius * 2.5f + 500.0f;
+    glm::vec3 up = std::fabs(ld.y) > 0.99f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+    glm::mat4 view = glm::lookAt(center + ld * dist, center, up);
+    float half = radius * 1.5f;
+    glm::mat4 proj = glm::ortho(-half, half, -half, half, 1.0f, dist + radius * 1.6f);
+    return proj * view;
+}
+
+const Renderer::Mesh3D* Renderer::MeshForEntity(const Entity& e) {
+    switch (e.mesh.type) {
+        case 1: return &m_PrimPlane;
+        case 2: return &m_PrimSphere;
+        case 3: return &GetObjMesh(e.mesh.meshPath);
+        default: return &m_PrimCube;
+    }
+}
+
+void Renderer::RenderShadowMap(const std::vector<Entity>& entities, const glm::mat4& lightVP) {
+    SetupShadowMap(AstraPrefs::ShadowSize);
+
+    GLint prevFbo = 0, prevVP[4] = {0, 0, 0, 0};
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFbo);
+    glGetIntegerv(GL_VIEWPORT, prevVP);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, m_ShadowFBO);
+    glViewport(0, 0, m_ShadowTexSize, m_ShadowTexSize);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    m_ShadowShader->Use();
+    m_ShadowShader->SetMat4("u_LightVP", lightVP);
+    for (const auto& e : entities) {
+        if (!e.is3D || !e.active) continue;
+        const Mesh3D* mesh = MeshForEntity(e);
+        if (!mesh || mesh->indexCount == 0) continue;
+        m_ShadowShader->SetMat4("u_Model", Transforms::Model3D(e));
+        glBindVertexArray(mesh->vao);
+        glDrawElements(GL_TRIANGLES, mesh->indexCount, GL_UNSIGNED_INT, 0);
+    }
+    glBindVertexArray(0);
+    glBindFramebuffer(GL_FRAMEBUFFER, prevFbo);
+    glViewport(prevVP[0], prevVP[1], prevVP[2], prevVP[3]);
+}
+
 void Renderer::RenderEntities3D(const std::vector<Entity>& entities, Camera* camera) {
     bool any = false;
     for (const auto& e : entities) if (e.is3D && e.active) { any = true; break; }
     if (!any) return;
 
-        glEnable(GL_DEPTH_TEST);
+    glEnable(GL_DEPTH_TEST);
     glDepthMask(GL_TRUE);
     glClear(GL_DEPTH_BUFFER_BIT);
+
+    // карта теней рисуется до основного прохода (своей FBO/viewport она всё возвращает обратно)
+    bool useShadow = AstraPrefs::Shadows;
+    glm::mat4 lightVP(1.0f);
+    if (useShadow) {
+        float radius = 0.0f;
+        lightVP = LightViewProj(entities, radius);
+        RenderShadowMap(entities, lightVP);
+    }
+
     m_Mesh3DShader->Use();
     m_Mesh3DShader->SetMat4("u_VP", camera->GetViewProjectionMatrix());
     glm::vec3 ld = glm::length(AstraPrefs::LightDir) > 0.0f ? glm::normalize(AstraPrefs::LightDir) : glm::vec3(0,1,0);
@@ -528,6 +694,15 @@ void Renderer::RenderEntities3D(const std::vector<Entity>& entities, Camera* cam
     m_Mesh3DShader->SetVec3("u_LightColor", AstraPrefs::LightColor);
     m_Mesh3DShader->SetFloat("u_Ambient", AstraPrefs::Ambient);
     m_Mesh3DShader->SetInt("u_Texture", 0);
+    m_Mesh3DShader->SetMat4("u_LightVP", lightVP);
+    m_Mesh3DShader->SetFloat("u_UseShadow", useShadow ? 1.0f : 0.0f);
+    m_Mesh3DShader->SetFloat("u_Texel", 1.0f / std::max(m_ShadowTexSize, 1));
+    if (useShadow) {
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, m_ShadowTex);
+        m_Mesh3DShader->SetInt("u_ShadowMap", 1);
+        glActiveTexture(GL_TEXTURE0);
+    }
 
     for (const auto& e : entities) {
         if (!e.is3D || !e.active) continue;
@@ -535,13 +710,7 @@ void Renderer::RenderEntities3D(const std::vector<Entity>& entities, Camera* cam
         m_Mesh3DShader->SetMat4("u_Model", model);
         m_Mesh3DShader->SetVec3("u_Color", e.mesh.color);
 
-        const Mesh3D* mesh = nullptr;
-        switch (e.mesh.type) {
-            case 1: mesh = &m_PrimPlane; break;
-            case 2: mesh = &m_PrimSphere; break;
-            case 3: mesh = &GetObjMesh(e.mesh.meshPath); break;
-            default: mesh = &m_PrimCube; break;
-        }
+        const Mesh3D* mesh = MeshForEntity(e);
         if (!mesh || mesh->indexCount == 0) continue;
 
         GLuint tex = e.mesh.texturePath.empty() ? m_WhiteTexture : GetTexture(e.mesh.texturePath);

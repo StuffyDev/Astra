@@ -7,7 +7,7 @@ Contents: [build](#1-build-and-run) · [projects](#2-projects) · [interface](#3
 [entities](#4-entities-and-components) · [scenes](#5-scenes) · [assets](#6-assets-and-import) ·
 [UI](#7-game-ui) · [undo](#8-undo--redo) · [hotkeys](#9-hotkeys) ·
 [settings](#10-engine-settings) · [build](#11-building-the-game-and-the-player) · [console](#12-console) ·
-[3D](#14-3d-mode)
+[3D](#14-3d-scenes)
 
 ---
 
@@ -224,52 +224,71 @@ clicking a line — copies that line. The error counter lives on the toolbar (re
 - `assets/scripts/rotate.cpp`, `player.cpp`, `examples/black_hole/orbit_planet.cpp`.
 - `examples/` — sources of the examples; `templates/default_project` — the project template.
 
-## 14. 3D Mode
+## 14. 3D Scenes
 
-Stage one: a perspective camera, mesh primitives, `.obj` import and simple lighting.
-The 2D tools (sprites, UI, tilemap, colliders, scripts) keep working next to it.
+3D is a **property of the scene**, not a "layer" bolted on top of 2D: `View ▸ 3D Scene` (the
+`Scene3D: 1` line in the file). A 3D scene has its own floor, its own camera navigation and its own
+tool set; flat sprites, tilemaps, colliders, the 2D camera rect and the UI previews are not drawn in
+the Scene there, and the Tile tool is hidden. 2D scenes are unchanged.
 
-**Enable**: `View ▸ 3D Mode`. The Scene viewport turns three-dimensional:
-- **RMB + mouse movement** — orbit around the focus (pitch clamped to ±89°);
-- **mouse wheel** — the distance to the focus (50…40000 world units);
-- **MMB** (or LMB with the **Hand** tool, key Q) — pan: the focus slides in the screen plane;
-- **LMB** — select a mesh object by clicking: a ray is cast from the camera against each mesh's AABB,
-  the one nearest the camera wins; clicking empty space clears the selection;
-- **F** — move the orbit focus onto the selected entity.
+**Navigating a 3D scene** (Unity-style, not the 2D pan):
+- **RMB + mouse movement** — look around (yaw/pitch, pitch clamped to ±89.5°);
+- **WASD + Q/E with RMB held** — fly: W/S forward/backward along the horizon, A/D sideways,
+  E/Q up/down, **Shift** — ×4 speed, **Ctrl** — ×0.25 (while RMB is held, W/E/R/Q do not switch tools);
+- **wheel** — a push along the view direction (faster the farther out you are);
+- **MMB** (or LMB with the **Hand** tool, Q) — pan in the screen plane;
+- **LMB** — select a mesh object: a ray is cast from the camera against each mesh's AABB, the one
+  closer to the camera wins; clicking empty space clears the selection;
+- **F** — fly onto the selected entity (the distance is taken from its scale);
+- **NUMPAD 1/2/3/4/5/7** — Front/Back/Right/Left/Top/Bottom views, **6** — perspective;
+- the **compass** in the Scene's top-right corner: clickable X/Y/Z axes (and its center resets to perspective).
 
-**3D gizmo**: the selected 3D entity shows axes (Move), rings (Rotate) or axes with handles (Scale),
-switched with the **W / E / R** tools or the toolbar buttons.
-- Move: drag an X/Y/Z axis to translate along that axis only; drag the centre diamond to move freely
-  in the screen plane;
-- Rotate: drag a ring to rotate about its axis, the angle is measured in the ring's plane;
-- Scale: drag the square at the end of an axis to scale that one axis; drag the centre for a uniform scale.
-- **Ctrl** snaps — positions to `GridSize`, angles to `SnapDegrees`. The gizmo keeps a constant on-screen
-  size, and a handle seen edge-on does not steal the click (the most visible one wins).
+**3D gizmo**: the selected 3D object draws axes (Move), rings (Rotate) or axes with handles
+(Scale) — switched with the **W / E / R** tools or the toolbar buttons.
+- Move: drag an X/Y/Z axis — the object travels along that axis only; drag the centre diamond — free
+  movement in the screen plane;
+- Rotate: drag a ring — rotation about the matching axis, the angle is measured in the ring's plane;
+- Scale: drag the square at the end of an axis — scale along that one axis; drag the centre — uniform.
+- **Ctrl** — snapping: positions to `GridSize`, angles to `SnapDegrees`. The gizmo keeps a constant
+  on-screen size, and a handle seen edge-on does not steal the click (the best visible one wins).
 
-The 2D gizmo and 2D mouse pan/zoom stay off in 3D mode so they don't fight navigation.
+**Floor and grid**: the grid lies in the XZ plane (`GridSize` step), follows the camera, and the X/Z/Y
+axes are tinted. The world's unit scheme is the same as in 2D: the default cube is 100×100×100.
 
-**Creating**: `GameObject ▸ Create 3D ▸ Cube / Plane / Sphere / OBJ Model`.
-Any entity's Inspector has a **3D Object** checkbox: Position 3 / Rotation 3 (in degrees, order X→Y→Z) /
-Scale 3, **Mesh** (Cube/Plane/Sphere/OBJ), the `.obj` path, Mesh Texture, Mesh Color.
-A 3D entity still has `transform.position/scale` — the 2D legacy and the physics need them;
-the 3D position comes from `pos3`.
+**Creating**: `GameObject ▸ Create 3D ▸ Cube / Plane / Sphere / OBJ Model` (creating a 3D object in a
+2D scene switches that scene to 3D automatically). Any entity's Inspector has a **3D Object** checkbox:
+Position 3 / Rotation 3 (in degrees, order X→Y→Z) / Scale 3, **Mesh** (Cube/Plane/Sphere/OBJ), the
+`.obj` path, Mesh Texture, Mesh Color. A 3D entity keeps `transform.position/scale` — the 2D legacy
+needs them; the 3D position comes from `pos3`.
 
-**Lighting** is Lambertian: `diffuse = max(dot(n, sun), 0) * LightColor + Ambient`. The sun
+**Light** is Lambertian with a shadow term: `diffuse = max(dot(n, sun), 0) * shadow + Ambient`, the sun
 direction/color and the ambient term are set in Edit ▸ Settings ▸ Lighting (3D) and saved to
 `~/.astra/config.ini`. The texture is multiplied by the color and the light; with no texture you get a
 flat material. Primitive normals are generated by the engine; for `.obj` they come from the file (`vn`)
-or are recomputed per face.
+or are recomputed from the faces.
 
-**The game camera**: the Camera component gains **Perspective (3D)** and **Field of View**.
-The Game view renders the 3D entities through that camera (2D objects still go through the orthographic
-one). The depth buffer is cleared before the meshes, so cubes don't show through each other.
+**Sun shadows**: a separate pass writes a depth map from an ortho camera fitted to the bounds of the 3D
+content, then the mesh shader takes a 3×3 PCF sample and compares depth with an offset (`bias` depends on
+the angle of the normal to the sun — less "acne" on slanted faces). Settings: **Shadows** (on/off) and
+**Shadow map** 1024/2048/4096 — also in Lighting (3D), also in `config.ini`. Shadows accumulate from all
+3D meshes and fall on everything, including the floor.
 
-**Serialization** (scene/prefab file): `Is3D`, `Pos3`, `Rot3`, `Scale3`, `MeshType`
-(0=Cube, 1=Plane, 2=Sphere, 3=OBJ), `MeshPath`, `MeshTex`, `MeshColor`, `CamPersp`, `CamFov`.
-Old files load unchanged — there `Is3D: 0` is the default.
+**The game camera in a 3D scene**: the Camera component has **Perspective (3D)** and **Field of View**;
+the camera's pose comes from the entity's **Position 3 / Rotation 3** (the eye sits at `pos3`, the view
+direction from the rotation), so you can move and rotate the camera like any other 3D object, by script
+or by gizmo. Follow/Level Bounds are 2D mechanics and play no part in the 3D branch. The depth buffer is
+cleared before the meshes, so cubes don't "show through" each other.
 
-**Game build**: the `.obj` from `MeshPath` and the image from `MeshTex` join the scene's dependency list,
-so they are copied and encrypted exactly like textures and sounds (section 11).
+**Serialization**: the `Scene3D: 0|1` line in the file header + the entity keys `Is3D`, `Pos3`, `Rot3`,
+`Scale3`, `MeshType` (0=Cube, 1=Plane, 2=Sphere, 3=OBJ), `MeshPath`, `MeshTex`, `MeshColor`,
+`CamPersp`, `CamFov`. Old files load as before (`Is3D: 0`, `Scene3D: 0`).
 
-**Next on the 3D plan**: shadows, skeletal animation, glTF instead of OBJ, separating Mesh Renderer from
-Sprite, 3D physics, orthographic 3D camera views (front/top/side).
+**Game build**: the `.obj` from `MeshPath` and the image from `MeshTex` join the scene's dependencies,
+so they are copied/encrypted exactly like textures and sounds (section 11).
+
+**Example**: `assets/scenes/3d_demo.scene` — a floor, three cubes and a sphere under a perspective
+camera with shadows (open it with a double-click in Project).
+
+**Next on the 3D plan**: 3D physics (Rigidbody/Collider for three axes), skeletal animation,
+glTF instead of OBJ, a Mesh Renderer as its own component next to Sprite, an orthographic view mode,
+lighting from several sources.

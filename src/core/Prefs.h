@@ -14,4 +14,6 @@ struct AstraPrefs {
     static inline glm::vec3 LightDir = glm::vec3(-0.4f, 0.7f, 0.5f);
     static inline glm::vec3 LightColor = glm::vec3(1.0f, 0.98f, 0.94f);
     static inline float Ambient = 0.25f;
+    static inline bool Shadows = true;    // тени от солнца (depth map + PCF)
+    static inline int ShadowSize = 2048;  // сторона карты теней: 1024/2048/4096
 };

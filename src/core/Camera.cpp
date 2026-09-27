@@ -6,12 +6,27 @@
 Camera::Camera(float aspectRatio)
     : m_Position(0.0f, 0.0f), m_Zoom(1.0f), m_AspectRatio(aspectRatio) {}
 
+glm::vec3 Camera::ForwardOf(float yawDeg, float pitchDeg) {
+    float yaw = glm::radians(yawDeg), pitch = glm::radians(pitchDeg);
+    return glm::vec3(-cosf(pitch) * sinf(yaw), -sinf(pitch), -cosf(pitch) * cosf(yaw));
+}
+
+glm::vec3 Camera::Right() const {
+    // world-up = +Y; при взгляде строго вверх/вниз right вырождается — берём стабильный заменитель
+    glm::vec3 f = Forward();
+    if (std::fabs(f.y) > 0.999f) return glm::vec3(1.0f, 0.0f, 0.0f);
+    return glm::normalize(glm::cross(f, glm::vec3(0.0f, 1.0f, 0.0f)));
+}
+
+glm::vec3 Camera::Up() const { return glm::normalize(glm::cross(Right(), Forward())); }
+
 glm::mat4 Camera::GetViewMatrix() const {
-    if (m_Orbit && m_Perspective) {
-        float yaw = glm::radians(m_OrbitYaw), pitch = glm::radians(m_OrbitPitch);
-        glm::vec3 dir(cosf(pitch) * sinf(yaw), sinf(pitch), cosf(pitch) * cosf(yaw));
-        glm::vec3 eye = m_OrbitFocus + dir * m_OrbitDist;
-        return glm::lookAt(eye, m_OrbitFocus, glm::vec3(0.0f, 1.0f, 0.0f));
+    if (m_Fly) {
+        glm::vec3 f = Forward();
+        // up = мировой +Y (стабильно при pitch < 90°), при почти вертикальном взгляде — правый вектор
+        glm::vec3 up(0.0f, 1.0f, 0.0f);
+        if (std::fabs(f.y) > 0.999f) up = glm::vec3(0.0f, 0.0f, f.y > 0.0f ? -1.0f : 1.0f);
+        return glm::lookAt(m_Eye, m_Eye + f, up);
     }
     return glm::translate(glm::mat4(1.0f), glm::vec3(-m_Position, 0.0f));
 }

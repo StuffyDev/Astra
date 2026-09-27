@@ -244,58 +244,82 @@ void Application::ProcessInput(float deltaTime) {
         m_EditorState = EditorState::Edit;
     }
 
-    // ===== 3D Mode: ПКМ — орбита, колесо — дистанция, ЛКМ — гизмо/выделение =====
+    // ===== 3D-сцена: ПКМ — осмотреться и лететь (WASDQE), колесо — толчок, ЛКМ — гизмо/выбор =====
     if (m_GUI->Is3DEditor()) {
         m_Camera->SetPerspective(true);
-        if (!m_OrbitInit) {
-            m_OrbitFocus = glm::vec3(m_Camera->GetPosition(), 0.0f);
-            m_OrbitYaw = 40.0f; m_OrbitPitch = 28.0f; m_OrbitDist = 1500.0f;
-            m_OrbitInit = true;
+        if (!m_FlyInit) {
+            // стартуем «над» прежним 2D-видом, чтобы сцена не пропала из виду
+            m_FlyPos = glm::vec3(m_Camera->GetPosition(), 0.0f) +
+                       glm::vec3(0.0f, m_FlyRefDist * 0.35f, m_FlyRefDist);
+            m_FlyYaw = 0.0f; m_FlyPitch = 18.0f;
+            m_FlyInit = true;
         }
         const glm::vec2 vp = m_GUI->GetSceneSize();
-        if (m_GUI->IsSceneHovered() && !m_GUI->IsAnyPopupOpen()) {
-            if (m_Window->IsMouseButtonDown(GLFW_MOUSE_BUTTON_RIGHT)) {
+        const bool overScene = m_GUI->IsSceneHovered() && !m_GUI->IsAnyPopupOpen() &&
+                               vp.x > 1.0f && vp.y > 1.0f;
+        if (overScene) {
+            const bool rmb = m_Window->IsMouseButtonDown(GLFW_MOUSE_BUTTON_RIGHT);
+            if (rmb) {
                 glm::vec2 d = m_Window->GetMousePos() - m_Window->GetLastMousePos();
-                m_OrbitYaw -= d.x * 0.25f;
-                m_OrbitPitch = std::clamp(m_OrbitPitch + d.y * 0.25f, -89.0f, 89.0f);
+                m_FlyYaw -= d.x * 0.22f;
+                m_FlyPitch = std::clamp(m_FlyPitch + d.y * 0.22f, -89.5f, 89.5f);
             }
-            // пан фокуса: средней кнопкой или ЛКМ в инструменте Hand
+            // полёт — только с зажатой ПКМ (иначе W/E/R/Q — переключение инструментов)
+            if (rmb) {
+                float mult = m_Window->IsKeyDown(GLFW_KEY_LEFT_SHIFT) ? 4.0f
+                           : (m_Window->IsKeyDown(GLFW_KEY_LEFT_CONTROL) ? 0.25f : 1.0f);
+                float sp = m_FlySpeed * mult * deltaTime;
+                glm::vec3 f = m_Camera->Forward(), r = m_Camera->Right();
+                glm::vec3 fwd(f.x, 0.0f, f.z);
+                fwd = glm::length(fwd) > 1e-4f ? glm::normalize(fwd) : glm::vec3(0, 0, -1);
+                glm::vec3 rgt(r.x, 0.0f, r.z);
+                rgt = glm::length(rgt) > 1e-4f ? glm::normalize(rgt) : glm::vec3(1, 0, 0);
+                if (m_Window->IsKeyDown(GLFW_KEY_W)) m_FlyPos += fwd * sp;
+                if (m_Window->IsKeyDown(GLFW_KEY_S)) m_FlyPos -= fwd * sp;
+                if (m_Window->IsKeyDown(GLFW_KEY_D)) m_FlyPos += rgt * sp;
+                if (m_Window->IsKeyDown(GLFW_KEY_A)) m_FlyPos -= rgt * sp;
+                if (m_Window->IsKeyDown(GLFW_KEY_E)) m_FlyPos.y += sp;
+                if (m_Window->IsKeyDown(GLFW_KEY_Q)) m_FlyPos.y -= sp;
+            }
+            // пан: средней кнопкой или ЛКМ в инструменте Hand
             const bool handTool = m_Scene->GetGizmoMode() == 3;
-            const bool panDrag = (m_Window->IsMouseButtonDown(GLFW_MOUSE_BUTTON_MIDDLE) ||
-                                  (handTool && m_Window->IsMouseButtonDown(GLFW_MOUSE_BUTTON_LEFT))) &&
-                                 vp.x > 1.0f && vp.y > 1.0f;
+            const bool panDrag = m_Window->IsMouseButtonDown(GLFW_MOUSE_BUTTON_MIDDLE) ||
+                                 (handTool && m_Window->IsMouseButtonDown(GLFW_MOUSE_BUTTON_LEFT));
             if (panDrag) {
                 glm::vec2 d = m_Window->GetMousePos() - m_Window->GetLastMousePos();
-                glm::vec3 view = m_Camera->ViewDirection();
-                glm::vec3 upRef(0.0f, 1.0f, 0.0f);
-                if (std::fabs(glm::dot(upRef, view)) > 0.98f) upRef = glm::vec3(0.0f, 0.0f, 1.0f);
-                glm::vec3 right = glm::normalize(glm::cross(upRef, view));
-                glm::vec3 up = glm::normalize(glm::cross(view, right));
-                float upp = m_Camera->WorldPerPixelAt(m_OrbitFocus, vp);
-                m_OrbitFocus += (right * (-d.x) + up * d.y) * upp;
+                float upp = m_Camera->WorldPerPixelAt(SceneViewFocusPoint(), vp);
+                m_FlyPos += (m_Camera->Right() * (-d.x) + m_Camera->Up() * d.y) * upp;
             }
             float scroll = m_Window->GetScrollOffset();
-            if (scroll != 0.0f)
-                m_OrbitDist = std::clamp(m_OrbitDist * (1.0f - scroll * 0.1f), 50.0f, 40000.0f);
+            if (scroll != 0.0f) {
+                m_FlyPos -= m_Camera->Forward() * (scroll * m_FlyRefDist * 0.12f);
+                m_FlyRefDist = std::clamp(m_FlyRefDist * (1.0f - scroll * 0.12f), 50.0f, 60000.0f);
+            }
             Input::Get().FeedScroll(scroll);
 
-            // F — навести центр орбиты на выбранное
-            if (!io.WantCaptureKeyboard && m_Window->IsKeyDown(GLFW_KEY_F)) {
-                Entity* sel = m_SceneManager->GetSelectedEntityPtr();
-                if (sel) m_OrbitFocus = sel->is3D ? sel->pos3
-                                                  : glm::vec3(sel->transform.position, 0.0f);
+            if (!io.WantCaptureKeyboard) {
+                // F — навестись на выбранное; NUMPAD 1/2/3/4/5/7 — виды, 6 — перспектива
+                if (m_Window->IsKeyDown(GLFW_KEY_F)) FocusOnSelection();
+                struct ViewKey { int key; float yaw, pitch; };
+                static const ViewKey kViews[] = {
+                    { GLFW_KEY_KP_1, 0.0f, 0.0f },
+                    { GLFW_KEY_KP_2, 180.0f, 0.0f },
+                    { GLFW_KEY_KP_3, 90.0f, 0.0f },
+                    { GLFW_KEY_KP_4, -90.0f, 0.0f },
+                    { GLFW_KEY_KP_5, 0.0f, 89.5f },
+                    { GLFW_KEY_KP_7, 0.0f, -89.5f },
+                    { GLFW_KEY_KP_6, 40.0f, 22.0f },
+                };
+                for (const auto& v : kViews)
+                    if (Input::Get().WasKeyPressed(v.key)) { SceneViewLook(v.yaw, v.pitch); break; }
             }
-
-            // матрицы камеры должны соответствовать уже новым параметрам орбиты —
-            // иначе picking и гизмо работают на «прошлокадровой» камере
-            m_Camera->SetOrbit(m_OrbitFocus, m_OrbitYaw, m_OrbitPitch, m_OrbitDist);
-
-            HandleSceneMouse3D(vp, m_Scene->GetGizmoMode(), editing);
         } else if (m_G3DDragging) {
             m_G3DDragging = false;
             m_G3DGrab = -1;
         }
-        m_Camera->SetOrbit(m_OrbitFocus, m_OrbitYaw, m_OrbitPitch, m_OrbitDist);
+        // матрицы — уже с новыми углами, иначе picking и гизмо живут прошлокадровой камерой
+        m_Camera->SetFly(m_FlyPos, m_FlyYaw, m_FlyPitch);
+        HandleSceneMouse3D(vp, m_Scene->GetGizmoMode(), editing);
         m_Window->UpdateLastMousePos();
         m_Window->ResetScrollOffset();
         return;
@@ -303,7 +327,7 @@ void Application::ProcessInput(float deltaTime) {
     m_G3DDragging = false;
     m_G3DGrab = -1;
     m_Scene->SetGizmo3D(false, glm::vec3(0.0f), 60.0f, 0, -1);
-    m_OrbitInit = false;
+    m_FlyInit = false;
     m_Camera->SetPerspective(false);
     m_Camera->ClearOrbit();
 
@@ -666,6 +690,29 @@ void Application::PickEntity3D(const glm::vec2& mouse, const glm::vec2& vp) {
     m_SceneManager->SetSelectedEntity(best);
 }
 
+glm::vec3 Application::SceneViewFocusPoint() const {
+    Entity* sel = m_SceneManager->GetSelectedEntityPtr();
+    if (sel) return sel->is3D ? sel->pos3 : glm::vec3(sel->transform.position, 0.0f);
+    return m_FlyPos + m_Camera->Forward() * m_FlyRefDist;
+}
+
+void Application::SceneViewLook(float yaw, float pitch) {
+    glm::vec3 focus = SceneViewFocusPoint();
+    m_FlyYaw = yaw;
+    m_FlyPitch = pitch;
+    m_FlyPos = focus - Camera::ForwardOf(yaw, pitch) * m_FlyRefDist;
+}
+
+void Application::FocusOnSelection() {
+    Entity* sel = m_SceneManager->GetSelectedEntityPtr();
+    if (!sel) return;
+    glm::vec3 target = sel->is3D ? sel->pos3 : glm::vec3(sel->transform.position, 0.0f);
+    float size = sel->is3D ? std::max({sel->scale3.x, sel->scale3.y, sel->scale3.z})
+                           : std::max(sel->transform.scale.x, sel->transform.scale.y);
+    m_FlyRefDist = std::clamp(size * 3.0f, 150.0f, 40000.0f);
+    m_FlyPos = target - m_Camera->Forward() * m_FlyRefDist;
+}
+
 void Application::HandleSceneMouse3D(const glm::vec2& vp, int rawMode, bool editing) {
     Entity* sel = m_SceneManager->GetSelectedEntityPtr();
     const bool sel3D = sel && sel->is3D;
@@ -676,7 +723,7 @@ void Application::HandleSceneMouse3D(const glm::vec2& vp, int rawMode, bool edit
     m_Scene->SetGizmo3D(sel3D && mode >= 0, center, len, mode < 0 ? 0 : mode,
                         m_G3DDragging ? m_G3DGrab : -1);
 
-    if (!editing || mode < 0 || vp.x <= 1.0f || vp.y <= 1.0f) return;
+    if (!editing || mode < 0 || m_GUI->IsCompassHot() || vp.x <= 1.0f || vp.y <= 1.0f) return;
 
     const glm::vec2 mouse = m_GUI->GetSceneMousePos();
     const bool pressed = Input::Get().WasMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT);

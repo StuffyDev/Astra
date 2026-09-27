@@ -22,6 +22,10 @@ public:
     int GetSelectedEntity() const { return m_SelectedEntity; }
     void SetSelectedEntity(int index) { m_SelectedEntity = index; }
 
+    // 3D-сцена: вьюпорт, навигация и сетка трёхмерные, 2D-пассивы в Scene не рисуются
+    bool Is3D() const { return m_Scene3D; }
+    void Set3D(bool on) { m_Scene3D = on; }
+
     Entity* GetSelectedEntityPtr();
 
     void Clear();
@@ -54,16 +58,19 @@ public:
         std::vector<Entity> entities;
         int selection = -1;
         uint32_t nextId = 1;
+        bool scene3D = false;
     };
-    SceneSnapshot TakeSnapshot() const { return { m_Entities, m_SelectedEntity, m_NextId }; }
+    SceneSnapshot TakeSnapshot() const { return { m_Entities, m_SelectedEntity, m_NextId, m_Scene3D }; }
     void Restore(const SceneSnapshot& snap) {
         m_Entities = snap.entities;
         m_SelectedEntity = snap.selection;
         m_NextId = snap.nextId;
+        m_Scene3D = snap.scene3D;
     }
 
 private:
     std::vector<Entity> m_Entities;
     int m_SelectedEntity = -1;
     uint32_t m_NextId = 1;
+    bool m_Scene3D = false;
 };
