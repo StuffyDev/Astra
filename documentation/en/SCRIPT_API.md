@@ -32,6 +32,7 @@ to the Console and to the red button on the toolbar.
 | `OnDestroy()` | before the instance is destroyed (Stop/StopAnimation scenarios) |
 | `OnTriggerEnter(uint32_t otherId)` / `OnTriggerExit` | entering/leaving a trigger |
 | `OnCollisionEnter(uint32_t otherId)` | a non-trigger collision |
+| `OnAnimEvent(const char* name)` | animation frame crossed a marker from the inspector (Events) |
 
 Methods (protected):
 
@@ -82,9 +83,11 @@ Input::Get().mousePosition(); mouseDelta(); // and so on
 
 // Audio
 Audio::PlayOneShot("assets/audio/hit.wav", 1.0f, 1.0f); // -> uint32 voiceId
-Audio::PlayLooped(path, vol, pitch); Audio::Stop(voiceId); Audio::StopAll();
+Audio::PlayOneShot(path, vol, pitch, group); // 4th arg group: 0=SFX, 1=Music
+Audio::PlayLooped(path, vol, pitch, group); Audio::Stop(voiceId); Audio::StopAll();
 Audio::SetVolume(voiceId, v); Audio::SetPitch(voiceId, p);
 Audio::SetMasterVolume(0..1); Audio::SetMuted(bool);
+Audio::SetGroupVolume(group, 0..1); Audio::GroupVolume(group); // 0=SFX, 1=Music
 
 // Game UI (buttons/sliders are entities with a UI Element component)
 GameUI::WasClicked(entityId);              // true for one frame after a click

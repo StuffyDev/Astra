@@ -78,9 +78,13 @@ An entity = a set of fixed components (for now; a pure ECS is on the roadmap):
 - **Camera** — Main Camera (one active), Zoom, Viewport Offset. The Game view looks
   through it; UI elements are positioned in world coordinates of this view.
   **Follow Target** — the camera smoothly follows the selected entity (Damping = seconds,
-  Offset = aim shift). Screen shake from scripts: `ShakeCamera(15.0f, 0.3f)`.
+  Offset = aim shift). **Level Bounds** — a rectangle of the level: the camera center is kept inside
+  (zoom-aware). Screen shake from scripts: `ShakeCamera(15.0f, 0.3f)`.
 - **UI Element** — see section 7.
-- **Audio Source** — Clip Path, Volume, Pitch, Loop, Play On Awake, Preview/Stop buttons.
+- **Animation events**: Animation > Events — markers (clip: any/specific, frame, name). When the frame
+  crosses a marker, the carrier script gets `OnAnimEvent("step")` — footsteps/shots/hits exactly on frames.
+- **Audio Source** — Clip Path, Volume, Pitch, Loop, Play On Awake, **Group** (SFX/Music),
+  Preview/Stop buttons. Group volumes live in Edit ▸ Settings ▸ Audio.
 - **Tilemap** — a grid of tiles from an atlas: Atlas Path, Tile Size, Atlas Cols, Grid W×H, Tint,
   Sorting Order (under the sprites by default). The Pick Tile popup shows the atlas as a grid; the current
   tile is applied with the **Tile (T)** brush: LMB paints the selected tile on the selected entity's grid,

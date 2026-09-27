@@ -12,6 +12,8 @@ struct Voice {
     ma_sound sound;
     std::vector<unsigned char> bytes;   // расшифрованные данные (шрифт/звук в билде)
     std::unique_ptr<ma_decoder> decoder;
+    float userVolume = 1.0f;
+    int group = 0;                      // 0=SFX, 1=Music
     bool alive = false;
     bool loop = false;
 };
@@ -20,6 +22,7 @@ ma_engine g_Engine;
 bool g_EngineReady = false;
 bool g_Muted = false;
 float g_MasterVolume = 1.0f;
+float g_GroupVolume[2] = { 1.0f, 1.0f };
 uint32_t g_NextId = 1;
 std::unordered_map<uint32_t, Voice> g_Voices;
 std::string g_LastError;
@@ -56,7 +59,7 @@ void Audio::Shutdown() {
     }
 }
 
-uint32_t Audio::Play(const std::string& path, float volume, float pitch, bool loop) {
+uint32_t Audio::Play(const std::string& path, float volume, float pitch, bool loop, int group) {
     if (!Init()) return 0;
     Voice v;
     if (!AssetIO::ReadBytes(path, v.bytes) || v.bytes.empty()) {
@@ -74,20 +77,22 @@ uint32_t Audio::Play(const std::string& path, float volume, float pitch, bool lo
     }
     v.alive = true;
     v.loop = loop;
+    v.userVolume = volume;
+    v.group = (group == 1) ? 1 : 0;
     uint32_t id = g_NextId++;
-    ma_sound_set_volume(&v.sound, volume);
+    ma_sound_set_volume(&v.sound, volume * g_GroupVolume[v.group]);
     ma_sound_set_pitch(&v.sound, pitch);
     ma_sound_start(&v.sound);
     g_Voices.emplace(id, std::move(v));
     return id;
 }
 
-uint32_t Audio::PlayOneShot(const std::string& path, float volume, float pitch) {
-    return Play(path, volume, pitch, false);
+uint32_t Audio::PlayOneShot(const std::string& path, float volume, float pitch, int group) {
+    return Play(path, volume, pitch, false, group);
 }
 
-uint32_t Audio::PlayLooped(const std::string& path, float volume, float pitch) {
-    return Play(path, volume, pitch, true);
+uint32_t Audio::PlayLooped(const std::string& path, float volume, float pitch, int group) {
+    return Play(path, volume, pitch, true, group);
 }
 
 void Audio::Stop(uint32_t id) {
@@ -99,8 +104,10 @@ void Audio::Stop(uint32_t id) {
 
 void Audio::SetVolume(uint32_t id, float volume) {
     auto it = g_Voices.find(id);
-    if (it != g_Voices.end() && it->second.alive)
-        ma_sound_set_volume(&it->second.sound, volume);
+    if (it != g_Voices.end()) {
+        it->second.userVolume = volume;
+        ma_sound_set_volume(&it->second.sound, volume * g_GroupVolume[it->second.group]);
+    }
 }
 
 void Audio::SetPitch(uint32_t id, float pitch) {
@@ -138,6 +145,17 @@ void Audio::SetMasterVolume(float volume) {
 
 float Audio::MasterVolume() {
     return g_MasterVolume;
+}
+
+void Audio::SetGroupVolume(int group, float volume) {
+    if (group < 0 || group > 1) return;
+    g_GroupVolume[group] = volume;
+    for (auto& [id, v] : g_Voices)
+        if (v.alive && v.group == group) ma_sound_set_volume(&v.sound, v.userVolume * volume);
+}
+
+float Audio::GroupVolume(int group) {
+    return (group >= 0 && group <= 1) ? g_GroupVolume[group] : 1.0f;
 }
 
 void Audio::SetMuted(bool muted) {

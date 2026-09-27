@@ -14,21 +14,24 @@ public:
     static void NewFrame();
 
     // Один сигнал — id источника (0 = ошибка). Loop-версия играет до Stop.
-    static uint32_t PlayOneShot(const std::string& path, float volume = 1.0f, float pitch = 1.0f);
-    static uint32_t PlayLooped(const std::string& path, float volume = 1.0f, float pitch = 1.0f);
+    // group: 0 = SFX, 1 = Music (свои громкости в настройках движка)
+    static uint32_t PlayOneShot(const std::string& path, float volume = 1.0f, float pitch = 1.0f, int group = 0);
+    static uint32_t PlayLooped(const std::string& path, float volume = 1.0f, float pitch = 1.0f, int group = 0);
     static void Stop(uint32_t id);
     static void SetVolume(uint32_t id, float volume);
     static void SetPitch(uint32_t id, float pitch);
     static void StopAll();
 
-    // Микшер (как Unity Audio Mixer, упрощённо: мастер-шина)
+    // Микшер (как Unity Audio Mixer, упрощённо: мастер + группы SFX/Music)
     static void SetMasterVolume(float volume); // 0..1
     static float MasterVolume();
+    static void SetGroupVolume(int group, float volume); // 0=SFX, 1=Music
+    static float GroupVolume(int group);
     static void SetMuted(bool muted);
     static bool IsMuted();
 
     static const std::string& LastError();
 
 private:
-    static uint32_t Play(const std::string& path, float volume, float pitch, bool loop);
+    static uint32_t Play(const std::string& path, float volume, float pitch, bool loop, int group);
 };

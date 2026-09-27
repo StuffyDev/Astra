@@ -480,6 +480,28 @@ void Application::PaintTileAtMouse() {
     tm.cells[(size_t)r * tm.width + c] = erase ? -1 : m_GUI->GetCurrentTile();
 }
 
+// Текущий абсолютный кадр анимации (та же формула, что в Renderer::AnimationRect)
+static int AnimFrameAt(const Entity& e, float t) {
+    const SpriteAnimation& a = e.animation;
+    if (a.cols < 1 || a.rows < 1) return -1;
+    int total = a.cols * a.rows;
+    int first = 0, last = total - 1;
+    float fps = a.fps;
+    bool loop = a.loop;
+    if (!a.clips.empty()) {
+        const AnimClip& c = a.clips[std::clamp(a.activeClip, 0, (int)a.clips.size() - 1)];
+        first = std::clamp(c.first, 0, total - 1);
+        last = std::clamp(c.last, first, total - 1);
+        fps = c.fps;
+        loop = c.loop;
+    }
+    int count = last - first + 1;
+    long frame = (long)std::floor(std::max(t, 0.0f) * std::max(fps, 0.01f));
+    if (loop) frame = first + frame % count;
+    else frame = std::min(first + frame, (long)last);
+    return (int)frame;
+}
+
 void Application::Update(float deltaTime) {
     Audio::NewFrame();
 
@@ -498,8 +520,18 @@ void Application::Update(float deltaTime) {
     // Спрайт-анимации: кадры крутятся и в Edit (превью), и в Play; Pause — стоп
     if (m_EditorState != EditorState::Pause) {
         for (auto& e : m_SceneManager->GetEntities()) {
-            if (e.animation.active && e.animation.cols >= 1 && e.animation.rows >= 1)
-                e.animTime += deltaTime;
+            if (!(e.animation.active && e.animation.cols >= 1 && e.animation.rows >= 1)) continue;
+            int prevFrame = AnimFrameAt(e, e.animTime);
+            e.animTime += deltaTime;
+            int curFrame = AnimFrameAt(e, e.animTime);
+            if (prevFrame < 0 || curFrame < 0 || !e.animation.events.size()) continue;
+            for (const AnimEvent& ev : e.animation.events) {
+                if (ev.clip != -1 && ev.clip != e.animation.activeClip) continue;
+                bool fired = false;
+                if (curFrame >= prevFrame) fired = (ev.frame > prevFrame && ev.frame <= curFrame);
+                else fired = (ev.frame > prevFrame || ev.frame <= curFrame); // цикл: пересечение нуля
+                if (fired) Scripting::DispatchAnimEvent(e.id, ev.name.c_str());
+            }
         }
     }
 
@@ -555,8 +587,8 @@ void Application::Update(float deltaTime) {
             for (const auto& e : m_SceneManager->GetEntities()) {
                 if (e.active && !e.audio.path.empty() && e.audio.playOnAwake) {
                     uint32_t vid = e.audio.loop
-                        ? Audio::PlayLooped(e.audio.path, e.audio.volume, e.audio.pitch)
-                        : Audio::PlayOneShot(e.audio.path, e.audio.volume, e.audio.pitch);
+                        ? Audio::PlayLooped(e.audio.path, e.audio.volume, e.audio.pitch, e.audio.group)
+                        : Audio::PlayOneShot(e.audio.path, e.audio.volume, e.audio.pitch, e.audio.group);
                     if (vid) m_AudioStarted.insert(e.id);
                 }
             }
@@ -619,8 +651,8 @@ void Application::Update(float deltaTime) {
         if (!e.active || e.audio.path.empty() || !e.audio.playOnAwake) continue;
         if (m_AudioStarted.count(e.id)) continue;
         uint32_t vid = e.audio.loop
-            ? Audio::PlayLooped(e.audio.path, e.audio.volume, e.audio.pitch)
-            : Audio::PlayOneShot(e.audio.path, e.audio.volume, e.audio.pitch);
+            ? Audio::PlayLooped(e.audio.path, e.audio.volume, e.audio.pitch, e.audio.group)
+            : Audio::PlayOneShot(e.audio.path, e.audio.volume, e.audio.pitch, e.audio.group);
         if (vid) m_AudioStarted.insert(e.id);
     }
 }

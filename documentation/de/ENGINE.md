@@ -78,9 +78,14 @@ Eine Entity = ein Satz fest vorgegebener Komponenten (im Moment so; ein reines E
 - **Camera** — Main Camera (eine aktive), Zoom, Viewport Offset. Der Game-View blickt durch sie;
   UI-Elemente werden in Weltkoordinaten dieser Ansicht positioniert.
   **Follow Target** — die Kamera folgt sanft der gewählten Entity (Damping = Sekunden,
-  Offset = Zielversatz). Screenshake aus Skripten: `ShakeCamera(15.0f, 0.3f)`.
+  Offset = Zielversatz). **Level Bounds** — ein Rechteck des Levels: die Kameramitte bleibt darin
+  (unter Berücksichtigung des Zooms). Screenshake aus Skripten: `ShakeCamera(15.0f, 0.3f)`.
 - **UI Element** — siehe Abschnitt 7.
-- **Audio Source** — Clip Path, Volume, Pitch, Loop, Play On Awake, Buttons Preview/Stop.
+- **Animations-Ereignisse**: Animation > Events — Marken (Clip: beliebig/bestimmter, Frame, Name).
+  Wenn der Frame eine Marke überquert, erhält das Träger-Skript `OnAnimEvent("step")` —
+  Schritte/Schüsse/Treffer exakt auf den Frames.
+- **Audio Source** — Clip Path, Volume, Pitch, Loop, Play On Awake, **Group** (SFX/Music),
+  Buttons Preview/Stop. Die Gruppenlautstärken sitzen in Edit ▸ Settings ▸ Audio.
 - **Tilemap** — ein Kachelraster aus einem Atlas: Atlas Path, Tile Size, Atlas Cols, Grid W×H, Tint,
   Sorting Order (standardmäßig unter den Sprites). Der Pick-Tile-Popup zeigt den Atlas als Raster;
   die aktuelle Kachel setzt das Werkzeug **Tile (T)**: LMB malt die gewählte Kachel ins Raster der

@@ -32,6 +32,7 @@ Console 中，并在工具栏上以红色按钮提示。
 | `OnDestroy()` | 实例销毁之前（Stop/StopAnimation 这类场景） |
 | `OnTriggerEnter(uint32_t otherId)` / `OnTriggerExit` | 进入/离开触发器 |
 | `OnCollisionEnter(uint32_t otherId)` | 非触发器（trigger）的碰撞 |
+| `OnAnimEvent(const char* name)` | 动画帧越过了检视面板（Events）里的标记 |
 
 方法（protected）：
 
@@ -81,9 +82,11 @@ Input::Get().mousePosition(); mouseDelta(); // 等等
 
 // 音频
 Audio::PlayOneShot("assets/audio/hit.wav", 1.0f, 1.0f); // -> uint32 voiceId
-Audio::PlayLooped(path, vol, pitch); Audio::Stop(voiceId); Audio::StopAll();
+Audio::PlayOneShot(path, vol, pitch, group); // 第 4 个参数 group：0=SFX, 1=Music
+Audio::PlayLooped(path, vol, pitch, group); Audio::Stop(voiceId); Audio::StopAll();
 Audio::SetVolume(voiceId, v); Audio::SetPitch(voiceId, p);
 Audio::SetMasterVolume(0..1); Audio::SetMuted(bool);
+Audio::SetGroupVolume(group, 0..1); Audio::GroupVolume(group); // 0=SFX, 1=Music
 
 // 游戏 UI（按钮/滑块 — 即带 UI Element 组件的实体）
 GameUI::WasClicked(entityId);              // 点击后的那一帧返回 true

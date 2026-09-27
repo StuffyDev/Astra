@@ -25,6 +25,9 @@ public:
     virtual void OnTriggerExit(uint32_t otherId) { (void)otherId; }
     virtual void OnCollisionEnter(uint32_t otherId) { (void)otherId; }
 
+    // Событие анимации: кадр клипа пересёк отметку из инспектора (step kick, shoot, footstep)
+    virtual void OnAnimEvent(const char* name) { (void)name; }
+
 protected:
     // Реализации — на стороне движка (core/Scripting.cpp)
     Entity* Owner();

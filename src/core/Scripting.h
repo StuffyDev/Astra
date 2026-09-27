@@ -19,6 +19,8 @@ public:
     // Создание экземпляров для новых носителей скрипта, OnDestroy+удаление для мёртвых
     static void SyncInstances(const std::vector<Entity>& entities);
     static void Update(float dt, const std::vector<Entity>& entities);
+    // Разослать событие анимации сущности (вызывает Script::OnAnimEvent)
+    static void DispatchAnimEvent(uint32_t entityId, const char* name);
     static void Unload();
 
     static Script* InstanceFor(uint32_t entityId);

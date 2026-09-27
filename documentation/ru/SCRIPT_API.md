@@ -32,6 +32,7 @@ SCRIPT_ENTRY(Rotate)   // ровно одна фабрика на файл
 | `OnDestroy()` | перед уничтожением инстанса (Stop/StopAnimation-сценарии) |
 | `OnTriggerEnter(uint32_t otherId)` / `OnTriggerExit` | вход/выход из триггера |
 | `OnCollisionEnter(uint32_t otherId)` | нерастриггерное соударение |
+| `OnAnimEvent(const char* name)` | кадр анимации пересёк метку из инспектора (Events) |
 
 Методы (protected):
 
@@ -81,10 +82,12 @@ Input::Get().GetAxis("move");              // -1..1
 Input::Get().mousePosition(); mouseDelta(); // и т.п.
 
 // Звук
-Audio::PlayOneShot("assets/audio/hit.wav", 1.0f, 1.0f); // -> uint32 voiceId
+Audio::PlayOneShot("assets/audio/hit.wav", 1.0f, 1.0f, 0); // -> uint32 voiceId; group: 0=SFX, 1=Music
 Audio::PlayLooped(path, vol, pitch); Audio::Stop(voiceId); Audio::StopAll();
 Audio::SetVolume(voiceId, v); Audio::SetPitch(voiceId, p);
 Audio::SetMasterVolume(0..1); Audio::SetMuted(bool);
+Audio::SetGroupVolume(group, 0..1); Audio::GroupVolume(group); // громкости SFX/Music
+Audio::SetGroupVolume(group, 0..1); Audio::GroupVolume(group); // 0=SFX, 1=Music
 
 // Игровой UI (кнопки/слайдеры — сущности с компонентом UI Element)
 GameUI::WasClicked(entityId);              // true один кадр после клика

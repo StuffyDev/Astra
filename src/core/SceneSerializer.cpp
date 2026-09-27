@@ -35,6 +35,14 @@ void WriteEntity(std::ostream& file, const Entity& e, const std::unordered_map<u
     file << "AnimFps: " << e.animation.fps << "\n";
     file << "AnimLoop: " << (e.animation.loop ? 1 : 0) << "\n";
     file << "AnimPlayOnAwake: " << (e.animation.playOnAwake ? 1 : 0) << "\n";
+    if (!e.animation.events.empty()) {
+        file << "AnimEvents: ";
+        for (size_t i = 0; i < e.animation.events.size(); i++) {
+            const AnimEvent& ev = e.animation.events[i];
+            file << (i ? ";" : "") << ev.clip << "|" << ev.frame << "|" << ev.name;
+        }
+        file << "\n";
+    }
     file << "PrefabSource: " << e.prefabSource << "\n";
     file << "ScriptPath: " << e.scriptPath << "\n";
     for (const auto& [name, value] : e.vars)
@@ -71,6 +79,8 @@ void WriteEntity(std::ostream& file, const Entity& e, const std::unordered_map<u
         file << "CameraFollowIndex: " << fidx << "\n";
         file << "CameraFollowDamp: " << e.camera.followDamping << "\n";
         file << "CameraFollowOffset: " << e.camera.followOffset.x << " " << e.camera.followOffset.y << "\n";
+        file << "CameraBounds: " << (e.camera.useBounds ? 1 : 0) << " " << e.camera.bounds.x << " " << e.camera.bounds.y
+             << " " << e.camera.bounds.z << " " << e.camera.bounds.w << "\n";
     }
     file << "HasUI: " << (e.hasUI ? 1 : 0) << "\n";
     file << "UIKind: " << static_cast<int>(e.ui.kind) << "\n";
@@ -86,6 +96,7 @@ void WriteEntity(std::ostream& file, const Entity& e, const std::unordered_map<u
     file << "SoundPitch: " << e.audio.pitch << "\n";
     file << "SoundLoop: " << (e.audio.loop ? 1 : 0) << "\n";
     file << "SoundPlayOnAwake: " << (e.audio.playOnAwake ? 1 : 0) << "\n";
+    file << "SoundGroup: " << e.audio.group << "\n";
     if (!e.animation.clips.empty()) {
         file << "AnimClips: ";
         for (size_t i = 0; i < e.animation.clips.size(); i++) {
@@ -235,6 +246,25 @@ bool SceneSerializer::LoadEntities(const std::string& path, std::vector<Entity>&
             else if (key == "AnimFps:") { iss >> current.animation.fps; }
             else if (key == "AnimLoop:") { int v; iss >> v; current.animation.loop = v; }
             else if (key == "AnimPlayOnAwake:") { int v; iss >> v; current.animation.playOnAwake = v; }
+            else if (key == "AnimEvents:") {
+                std::string line; std::getline(iss, line); line = TrimLead(line);
+                current.animation.events.clear();
+                size_t pos = 0;
+                while (pos < line.size()) {
+                    size_t semi = line.find(';', pos);
+                    std::string part = line.substr(pos, (semi == std::string::npos ? line.size() : semi) - pos);
+                    size_t p1 = part.find('|'), p2 = part.find('|', p1 + 1);
+                    if (p1 != std::string::npos && p2 != std::string::npos) {
+                        AnimEvent ev;
+                        ev.clip = std::stoi(part.substr(0, p1));
+                        ev.frame = std::stoi(part.substr(p1 + 1, p2 - p1 - 1));
+                        ev.name = part.substr(p2 + 1);
+                        current.animation.events.push_back(ev);
+                    }
+                    if (semi == std::string::npos) break;
+                    pos = semi + 1;
+                }
+            }
             else if (key == "PrefabSource:") { std::getline(iss, current.prefabSource); current.prefabSource = TrimLead(current.prefabSource); }
             else if (key == "ScriptPath:") { std::getline(iss, current.scriptPath); current.scriptPath = TrimLead(current.scriptPath); }
             else if (key == "ScriptVar:") {
@@ -281,6 +311,8 @@ bool SceneSerializer::LoadEntities(const std::string& path, std::vector<Entity>&
             else if (key == "SoundPitch:") { iss >> current.audio.pitch; }
             else if (key == "SoundLoop:") { int v; iss >> v; current.audio.loop = v; }
             else if (key == "SoundPlayOnAwake:") { int v; iss >> v; current.audio.playOnAwake = v; }
+            else if (key == "SoundGroup:") { iss >> current.audio.group; }
+            else if (key == "CameraBounds:") { int u; iss >> u >> current.camera.bounds.x >> current.camera.bounds.y >> current.camera.bounds.z >> current.camera.bounds.w; current.camera.useBounds = u; }
             else if (key == "AnimClips:") {
                 std::string line; std::getline(iss, line); line = TrimLead(line);
                 current.animation.clips.clear();

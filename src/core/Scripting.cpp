@@ -147,7 +147,12 @@ bool SoUpToDate(const std::string& cppPath) {
     if (ec) return false;
     auto srcTime = fs::last_write_time(cppPath, ec);
     if (ec) return false;
-    return soTime >= srcTime;
+    if (soTime < srcTime) return false;
+    // ScriptAPI.h изменился (новый vtable/хуки) — старые .so перекомпилировать
+    fs::path api = fs::path(ASTRA_SRC_DIR) / "scripts" / "ScriptAPI.h";
+    auto apiTime = fs::last_write_time(api, ec);
+    if (!ec && soTime < apiTime) return false;
+    return true;
 }
 
 bool OpenScript(const std::string& soPath, const std::string& cppPath) {
@@ -378,6 +383,11 @@ void Scripting::SyncInstances(const std::vector<Entity>& entities) {
         g_Instances[e.id] = { s, e.scriptPath };
         s->Start();
     }
+}
+
+void Scripting::DispatchAnimEvent(uint32_t entityId, const char* name) {
+    auto it = g_Instances.find(entityId);
+    if (it != g_Instances.end() && it->second.script) it->second.script->OnAnimEvent(name);
 }
 
 void Scripting::Update(float dt, const std::vector<Entity>& entities) {

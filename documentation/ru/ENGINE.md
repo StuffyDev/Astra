@@ -77,9 +77,13 @@ Import File...).
 - **Camera** — Main Camera (одна активная), Zoom, Viewport Offset. Game-view смотрит
   через неё; UI-элементы позиционируются в мировых координатах этого вида.
   **Follow Target** — камера плавно идёт за выбранной сущностью (Damping — секунды, Offset —
-  сдвиг прицела). Тряска из скриптов: `ShakeCamera(15.0f, 0.3f)`.
+  сдвиг прицела). **Level Bounds** — прямоугольник уровня: центр камеры не выпустит за границы
+  (учитывая зум). Тряска из скриптов: `ShakeCamera(15.0f, 0.3f)`.
 - **UI Element** — см. раздел 7.
-- **Audio Source** — Clip Path, Volume, Pitch, Loop, Play On Awake, кнопки Preview/Stop.
+- **События анимации**: Animation > Events — метки (клип: любой/конкретный, кадр, имя). Когда кадр
+  пересёк метку, скрипт-носитель получает `OnAnimEvent("step")` — шаги/выстрелы/удары точно по кадрам.
+- **Audio Source** — Clip Path, Volume, Pitch, Loop, Play On Awake, **Group** (SFX/Music),
+  кнопки Preview/Stop. Громкости групп — в Edit ▸ Settings ▸ Audio.
 - **Tilemap** — сетка тайлов из атласа: Atlas Path, Tile Size, Atlas Cols, Grid W×H, Tint,
   Sorting Order (по умолчанию под спрайтами). Пикер тайла показывает атлас сеткой; текущий тайл —
   инструмент **Tile (T)**: ЛКМ рисует по сетке выбранной тайлмап-сущности, Shift+ЛКМ стирает.

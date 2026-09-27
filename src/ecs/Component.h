@@ -45,6 +45,13 @@ struct AnimClip {
     bool loop = true;
 };
 
+// Событие анимации: когда кадр клипа пересёкал frame — скрипту придёт OnAnimEvent(name)
+struct AnimEvent {
+    int clip = -1;        // индекс клипа; -1 = любой клип/вся сетка
+    int frame = 0;        // абсолютный индекс кадра в сетке
+    std::string name;
+};
+
 // покадровая анимация по сетке спрайтшита (row 0 = верхний ряд)
 struct SpriteAnimation {
     bool active = false;       // крутится ли (в Edit — превью, в Play — по playOnAwake)
@@ -56,6 +63,7 @@ struct SpriteAnimation {
     bool playOnAwake = true;   // включать при входе в Play
     std::vector<AnimClip> clips; // пусто — гоняем всю сетку целиком
     int activeClip = 0;
+    std::vector<AnimEvent> events;
 };
 
 // Тайлмап: сетка тайлов из атласа (index = row*colsW + col, -1 пусто).
@@ -123,6 +131,9 @@ struct CameraComponent {
     uint32_t followTargetId = 0;
     float followDamping = 0.15f;
     glm::vec2 followOffset = glm::vec2(0.0f, 0.0f);
+    // Границы уровня: центр камеры не выпустить за прямоугольник (в мировых координатах)
+    bool useBounds = false;
+    glm::vec4 bounds = glm::vec4(-2000.0f, -2000.0f, 4000.0f, 4000.0f); // x, y (низ-лево), w, h
 };
 
 enum class UIKind {
@@ -158,4 +169,5 @@ struct AudioSource {
     float pitch = 1.0f;    // 0.1..3 — смена высоты/скорости
     bool loop = false;
     bool playOnAwake = true;
+    int group = 0;         // 0 = SFX, 1 = Music (громкости групп — в настройках движка)
 };

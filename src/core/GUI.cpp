@@ -251,6 +251,11 @@ static uint64_t ComputeSignatureFor(const std::vector<Entity>& ents) {
         FnvUpdate(h, &e.audio.pitch, sizeof(e.audio.pitch));
         FnvUpdate(h, &e.audio.loop, sizeof(e.audio.loop));
         FnvUpdate(h, &e.audio.playOnAwake, sizeof(e.audio.playOnAwake));
+        FnvUpdate(h, &e.audio.group, sizeof(e.audio.group));
+        for (const AnimEvent& ev : e.animation.events) {
+            FnvUpdate(h, &ev.clip, sizeof(int) * 2);
+            FnvStr(h, ev.name);
+        }
         FnvUpdate(h, &e.hasTilemap, sizeof(e.hasTilemap));
         if (e.hasTilemap) {
             FnvStr(h, e.tilemap.texturePath);
@@ -564,7 +569,28 @@ void GUI::UpdateGameCamera(SceneManager* sceneManager) {
     m_HasGameCamera = chosen != nullptr;
     if (chosen) {
         // мировая позиция с учётом parent-цепочки: камера-ребёнок следует за родителем
-        m_GameCamera->SetPosition(Transforms::WorldPosition(entities, *chosen) + chosen->camera.offset);
+        glm::vec2 pos = Transforms::WorldPosition(entities, *chosen) + chosen->camera.offset;
+        if (chosen->camera.followTargetId != 0) {
+            for (auto& e : entities) {
+                if (e.id != chosen->camera.followTargetId || !e.active) continue;
+                glm::vec2 target = Transforms::WorldPosition(entities, e) + chosen->camera.followOffset;
+                float damp = std::max(chosen->camera.followDamping, 0.001f);
+                float k = std::min(1.0f, ImGui::GetIO().DeltaTime / damp);
+                pos += (target - pos) * k;
+                break;
+            }
+        }
+        if (chosen->camera.useBounds) {
+            const glm::vec4& bd = chosen->camera.bounds;
+            float hh = 1080.0f * chosen->camera.zoom * 0.5f;
+            float hw = hh * (m_GameSize.x / std::max(m_GameSize.y, 1.0f));
+            float minX = bd.x + hw, maxX = bd.x + bd.z - hw;
+            float minY = bd.y + hh, maxY = bd.y + bd.w - hh;
+            pos.x = (minX > maxX) ? (bd.x + bd.z * 0.5f) : std::clamp(pos.x, minX, maxX);
+            pos.y = (minY > maxY) ? (bd.y + bd.w * 0.5f) : std::clamp(pos.y, minY, maxY);
+        }
+        pos += Scripting::ShakeOffset();
+        m_GameCamera->SetPosition(pos);
         m_GameCamera->SetZoom(chosen->camera.zoom);
         m_GameCamera->SetAspectRatio(m_GameSize.x / m_GameSize.y);
     }
@@ -1696,6 +1722,33 @@ void GUI::RenderInspector(EditorContext& ctx) {
                 ImGui::SameLine();
                 ImGui::TextDisabled("PlayClip(e, \"run\") из скриптов");
             }
+            if (ImGui::CollapsingHeader("Events")) {
+                auto& evs = selected->animation.events;
+                int totalFrames = std::max(selected->animation.cols, 1) * std::max(selected->animation.rows, 1);
+                for (size_t i = 0; i < evs.size(); i++) {
+                    AnimEvent& ev = evs[i];
+                    ImGui::PushID((int)i);
+                    ImGui::SetNextItemWidth(64.0f);
+                    ImGui::DragInt("##evclip", &ev.clip, 1.0f, -1, std::max(0, (int)selected->animation.clips.size() - 1),
+                                   ev.clip == -1 ? "any" : "clip %d");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(56.0f);
+                    if (ImGui::DragInt("##evframe", &ev.frame, 1.0f, 0, std::max(0, totalFrames - 1)))
+                        ev.frame = std::clamp(ev.frame, 0, std::max(0, totalFrames - 1));
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(110.0f);
+                    ImGui::InputText("##evname", &ev.name);
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("X")) { evs.erase(evs.begin() + (long)i); ImGui::PopID(); break; }
+                    ImGui::PopID();
+                }
+                if (ImGui::SmallButton("+ Add Event")) {
+                    AnimEvent ev; ev.name = "event";
+                    evs.push_back(ev);
+                }
+                ImGui::SameLine();
+                ImGui::TextDisabled("кадр → OnAnimEvent(name) в скрипте");
+            }
             ImGui::Unindent();
         }
 
@@ -1877,6 +1930,43 @@ void GUI::RenderInspector(EditorContext& ctx) {
             ImGui::Checkbox("Main Camera", &selected->camera.mainCamera);
             ImGui::DragFloat("Zoom", &selected->camera.zoom, 0.01f, 0.1f, 20.0f);
             ImGui::DragFloat2("Viewport Offset", &selected->camera.offset.x, 1.0f);
+            // Follow: цель = сущность из сцены (не сама камера)
+            {
+                auto& ents = sceneManager->GetEntities();
+                std::vector<std::string> followNames; followNames.push_back("(нет)");
+                int curIdx = 0, i = 1;
+                for (auto& e : ents) {
+                    if (e.id == selected->id) continue;
+                    followNames.push_back(e.name);
+                    if (e.id == selected->camera.followTargetId) curIdx = i;
+                    i++;
+                }
+                ImGui::SetNextItemWidth(170.0f);
+                if (ImGui::BeginCombo("Follow Target", followNames[std::clamp(curIdx, 0, (int)followNames.size() - 1)].c_str())) {
+                    for (int fi = 0; fi < (int)followNames.size(); fi++) {
+                        if (ImGui::Selectable(followNames[fi].c_str(), fi == curIdx)) {
+                            if (fi == 0) selected->camera.followTargetId = 0;
+                            else {
+                                int cnt = 0;
+                                for (auto& e : ents) {
+                                    if (e.id == selected->id) continue;
+                                    if (++cnt == fi) { selected->camera.followTargetId = e.id; break; }
+                                }
+                            }
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                if (selected->camera.followTargetId != 0) {
+                    ImGui::DragFloat("Follow Damping", &selected->camera.followDamping, 0.01f, 0.01f, 2.0f, "%.2f s");
+                    ImGui::DragFloat2("Follow Offset", &selected->camera.followOffset.x, 1.0f);
+                }
+                ImGui::Checkbox("Level Bounds", &selected->camera.useBounds);
+                if (selected->camera.useBounds) {
+                    ImGui::DragFloat2("Bounds min", &selected->camera.bounds.x, 1.0f);
+                    ImGui::DragFloat2("Bounds size", &selected->camera.bounds.z, 1.0f, 1.0f);
+                }
+            }
         }
 
         // --- UI Element ---
@@ -1928,6 +2018,11 @@ void GUI::RenderInspector(EditorContext& ctx) {
         }
         ImGui::DragFloat("Volume", &selected->audio.volume, 0.01f, 0.0f, 2.0f);
         ImGui::DragFloat("Pitch", &selected->audio.pitch, 0.01f, 0.1f, 3.0f);
+        {
+            const char* groups[] = { "SFX", "Music" };
+            int g = selected->audio.group == 1 ? 1 : 0;
+            if (ImGui::Combo("Group", &g, groups, 2)) selected->audio.group = g;
+        }
         ImGui::Checkbox("Loop##audio", &selected->audio.loop);
         ImGui::Checkbox("Play On Awake##audio", &selected->audio.playOnAwake);
         if (!selected->audio.path.empty()) {
@@ -2987,6 +3082,12 @@ void GUI::RenderSettings(EditorContext& ctx) {
             float vol = Audio::MasterVolume();
             if (ImGui::SliderFloat("Master volume", &vol, 0.0f, 1.0f, "%.2f"))
                 Audio::SetMasterVolume(vol);
+            float sfx = Audio::GroupVolume(0);
+            if (ImGui::SliderFloat("SFX volume", &sfx, 0.0f, 1.0f, "%.2f"))
+                Audio::SetGroupVolume(0, sfx);
+            float mus = Audio::GroupVolume(1);
+            if (ImGui::SliderFloat("Music volume", &mus, 0.0f, 1.0f, "%.2f"))
+                Audio::SetGroupVolume(1, mus);
             bool muted = Audio::IsMuted();
             if (ImGui::Checkbox("Mute", &muted))
                 Audio::SetMuted(muted);

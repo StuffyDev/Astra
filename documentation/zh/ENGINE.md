@@ -77,9 +77,13 @@ Deselect）；在 Project 中 — 在空白处（Create Folder/Shader/Script、I
 - **Camera** — Main Camera（只有一个处于激活状态）、Zoom、Viewport Offset。Game 视图透过它观察；
   UI 元素按该视图的世界坐标定位。
   **Follow Target** — 相机平滑跟随选中的实体（Damping = 秒，Offset = 瞄准偏移）。
+  **Level Bounds** — 关卡的一个矩形：相机中心不会被放出边界（考虑缩放）。
   脚本触发屏幕震动：`ShakeCamera(15.0f, 0.3f)`。
 - **UI Element** — 见第 7 节。
-- **Audio Source** — Clip Path、Volume、Pitch、Loop、Play On Awake、Preview/Stop 按钮。
+- **动画事件**：Animation > Events — 标记（clip：任意/指定、帧、名字）。当帧越过标记时，
+  载体脚本收到 `OnAnimEvent("step")` — 脚步声/射击/命中精确落在帧上。
+- **Audio Source** — Clip Path、Volume、Pitch、Loop、Play On Awake、**Group**（SFX/Music）、Preview/Stop 按钮。
+  各组音量在 Edit ▸ Settings ▸ Audio 里调整。
 - **Tilemap** — 由图集拼出的瓦片网格：Atlas Path、Tile Size、Atlas Cols、Grid W×H、Tint、
   Sorting Order（默认在精灵下面）。Pick Tile 弹窗把图集显示成网格；选中的瓦片由 **Tile (T)** 笔刷绘制：
   LMB（鼠标左键）在选中的 Tilemap 实体的网格上放置当前瓦片，Shift+LMB 擦除。
