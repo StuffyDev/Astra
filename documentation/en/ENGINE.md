@@ -257,9 +257,19 @@ axes are tinted. The world's unit scheme is the same as in 2D: the default cube 
 
 **Creating**: `GameObject ▸ Create 3D ▸ Cube / Plane / Sphere / OBJ Model` (creating a 3D object in a
 2D scene switches that scene to 3D automatically). Any entity's Inspector has a **3D Object** checkbox:
-Position 3 / Rotation 3 (in degrees, order X→Y→Z) / Scale 3, **Mesh** (Cube/Plane/Sphere/OBJ), the
-`.obj` path, Mesh Texture, Mesh Color. A 3D entity keeps `transform.position/scale` — the 2D legacy
-needs them; the 3D position comes from `pos3`.
+Position 3 / Rotation 3 (in degrees, order X→Y→Z) / Scale 3, **Mesh** (Cube / Plane / Sphere / **OBJ** /
+**glTF**), the model path, Mesh Texture, Mesh Color. A 3D entity keeps `transform.position/scale` — the
+2D legacy needs them; the 3D position comes from `pos3`.
+
+**Models: glTF and OBJ.** glTF 2.0 (`Mesh` = glTF) is the preferred format: both `.glb` (everything in
+one file) and `.gltf` (JSON + an external `.bin` or a base64 `data:` URI) load. Supported are the first
+mesh with all of its primitives, `POSITION`/`NORMAL`/`TEXCOORD_0`, u32/u16/u8 indices, interleaved
+`byteStride` and `normalized` attributes; if the file has no normals, the engine derives flat per-face
+ones. The texture path from `baseColorTexture` shows up in the Inspector as a hint — put the image into
+`Mesh Texture` yourself. Node transforms, skinning, animations, PBR metallic and Draco are not supported
+(yet — they are on the plan). OBJ (`Mesh` = OBJ) stays: v/vt/vn, polygons → triangles, the face normal
+when there is no `vn`. A `.gltf`'s external `.bin` files join the scene's dependencies and are encrypted
+at build time exactly like the model itself.
 
 **Light** is Lambertian with a shadow term: `diffuse = max(dot(n, sun), 0) * shadow + Ambient`, the sun
 direction/color and the ambient term are set in Edit ▸ Settings ▸ Lighting (3D) and saved to
@@ -280,8 +290,10 @@ or by gizmo. Follow/Level Bounds are 2D mechanics and play no part in the 3D bra
 cleared before the meshes, so cubes don't "show through" each other.
 
 **Serialization**: the `Scene3D: 0|1` line in the file header + the entity keys `Is3D`, `Pos3`, `Rot3`,
-`Scale3`, `MeshType` (0=Cube, 1=Plane, 2=Sphere, 3=OBJ), `MeshPath`, `MeshTex`, `MeshColor`,
-`CamPersp`, `CamFov`. Old files load as before (`Is3D: 0`, `Scene3D: 0`).
+`Scale3`, `MeshType` (0=Cube, 1=Plane, 2=Sphere, 3=OBJ, 4=glTF), `MeshPath`, `MeshTex`, `MeshColor`,
+`CamPersp`, `CamFov`, plus the 3D physics keys `HasRigidbody3D`, `Rb3Kinematic`, `Rb3Velocity`,
+`Rb3Mass`, `Rb3Drag`, `Rb3Gravity`, `HasCollider3D`, `Col3Type`, `Col3Trigger`, `Col3Center`,
+`Col3Half`, `Col3Radius`. Old files load as before (`Is3D: 0`, `Scene3D: 0`).
 
 **Game build**: the `.obj` from `MeshPath` and the image from `MeshTex` join the scene's dependencies,
 so they are copied/encrypted exactly like textures and sounds (section 11).
@@ -289,6 +301,15 @@ so they are copied/encrypted exactly like textures and sounds (section 11).
 **Example**: `assets/scenes/3d_demo.scene` — a floor, three cubes and a sphere under a perspective
 camera with shadows (open it with a double-click in Project).
 
-**Next on the 3D plan**: 3D physics (Rigidbody/Collider for three axes), skeletal animation,
-glTF instead of OBJ, a Mesh Renderer as its own component next to Sprite, an orthographic view mode,
-lighting from several sources.
+**3D physics**: the **Rigidbody (3D)** and **Collider (3D)** components are added with the
+`+ Add Component` button (3D entities only). Gravity pulls along `-Y` (tuned in Edit ▸ Settings ▸
+Physics ▸ Gravity (3D), in m/s², just like in 2D), colliders come as Box and Sphere; sizes are given in
+mesh units (`Half Size 0.5` + `Scale 3 = 100` = a 100×100×100 cube), rotation is handled as the bounds of
+the rotated box (an AABB), and scale through `Scale 3`. `Is Kinematic` — the body is driven by a
+script/parent, `Is Trigger` — no pushing apart, and the events are the same ones: `OnTriggerEnter/Exit`,
+`OnCollisionEnter`. The collider wireframes show up in the Scene (green — solid, cyan — trigger).
+Child bodies are not integrated — the parent moves them.
+
+**Next on the 3D plan**: skeletal animation and glTF animations, a Mesh Renderer that is its own
+component next to Sprite, an orthographic view mode, several light sources, PBR materials instead of
+Lambert.

@@ -73,7 +73,67 @@ Inspector ▸ Material: 4 sliders → `u_Params.xyzw`, color → `u_PColor`.
 Move a slider and the shader changes instantly (both in the editor and in the built game).
 This is how you tune: effect strength, size/speed, color, transparency — without recompiling.
 
-## 6. Ready-Made Examples from the Project
+## 6. 3D Materials (Mesh Shaders)
+
+A 3D entity has a **Mesh Shader** field (the base path of a `.vert/.frag`; empty means the engine's stock
+shader). As in 2D, a single `.frag` is enough — the engine supplies the vertex stage (`EngineMeshVert`).
+
+What the vertex preamble gives you (the mesh's `in` attributes are `a_Pos`, `a_Normal`, `a_UV`):
+
+| Name | Type | What it is |
+|---|---|---|
+| `u_VP`, `u_Model` | `mat4` | the view-projection and the model matrices |
+| `u_Time`, `u_ScreenSize` | `float`, `vec2` | time and the viewport size |
+| `v_World`, `v_Normal`, `v_UV` | `out` | world position, normal, uv |
+| `EngineMeshVert()` | void | the standard vertex stage (call it from `main()`) |
+| `EngineClip(localPos)` | `vec4` | the clip-space position of a model-space point |
+| `EngineWorld(localPos)` | `vec3` | the world position of a model-space point |
+| `EngineNormalWorld()` | `vec3` | the normal in world space |
+| `EngineWaveVert(amp, freq)` | `vec3` | the position with a wave riding on its height |
+
+The fragment shader gets light, shadows and the material:
+
+| Name | Type/signature | What it is |
+|---|---|---|
+| `u_Color`, `u_Texture`, `u_UseTex` | `vec3`, `sampler2D`, `float` | the mesh's color and texture |
+| `u_Params`, `u_PColor` | `vec4` | the inspector's "Material" — the same sliders as in 2D |
+| `u_LightDir`, `u_LightColor`, `u_Ambient` | `vec3`, `vec3`, `float` | the sun and the fill light |
+| `u_LightVP`, `u_ShadowMap`, `u_Texel`, `u_UseShadow` | `mat4`, `sampler2D`, `float`, `float` | the sun's shadow map |
+| `u_EyePos` | `vec3` | the camera position (for fresnel/fog/specular) |
+| `EngineBaseColor()` | `vec4` | texture × color (honors `u_UseTex`) |
+| `EngineShadow(world, n)` | `float` | 1 — lit, 0 — shadowed (3×3 PCF, offset along the normal) |
+| `EngineLambert(n)` | `float` | `max(dot(n, sun), 0)` |
+| `EngineLit(albedo, n, world)` | `vec3` | `albedo * (sun × shadow + ambient)` — exactly what the stock shader does |
+| `EngineLightDir()`, `EngineViewDir()` | `vec3` | direction vectors |
+| `EngineFresnel(n, power)` | `float` | the rim |
+| `EngineSpecular(n, power)` | `float` | a highlight off the half-vector of "sun + view" |
+| `EngineFog(density)` | `float` | 0..1 by distance to the camera |
+
+The minimal 3D material:
+
+```glsl
+void main() {
+    vec3 n = normalize(v_Normal);
+    vec3 col = EngineLit(EngineBaseColor().rgb, n, v_World);
+    col += vec3(0.35, 0.6, 1.0) * EngineFresnel(n, 2.5) * u_Params.x;   // rim
+    col += vec3(1.0, 0.85, 0.6) * EngineSpecular(n, 48.0) * u_Params.y; // specular highlight
+    fragColor = vec4(col, 1.0);
+}
+```
+
+The complete example is `assets/shaders/metal3d.frag` (the `3d_demo.scene` scene, the "Cube Metal"
+object). You need your own vertex stage only when you want to deform the geometry:
+
+```glsl
+void main() {
+    v_World = EngineWorld(EngineWaveVert(12.0, 2.0));
+    v_Normal = EngineNormalWorld();
+    v_UV = a_UV;
+    gl_Position = u_VP * vec4(v_World, 1.0);
+}
+```
+
+## 7. Ready-Made Examples from the Project
 
 | File | What it shows |
 |---|---|
@@ -84,10 +144,12 @@ This is how you tune: effect strength, size/speed, color, transparency — witho
 | `effect_rainbow.frag` | `EngineRainbow` + `EnginePulse` |
 | `effect_plasma.frag` | `EngineFbm` plasma |
 | `example_wobble.vert/.frag` | a custom vertex shader with a wave |
+| `metal3d.frag` | a 3D material: `EngineLit` + shadow + fresnel + specular (the 3d_demo scene) |
 
-## 7. Debugging
+## 8. Debugging
 
-- A compile error appears in the Console (text from glslang/GLSL); the object is drawn with the stock shader.
+- A compile error appears in the Console (text from glslang/GLSL) and the object is drawn with the stock
+  shader — 3D behaves the same way: a broken `Mesh Shader` silently falls back to the stock one.
 - A quick check without the engine: `glslangValidator` + the engine's preambles (the engine prints them itself
   on an error; or look at `kUserFragPrelude` in `src/core/Renderer.cpp`).
 - Pixel artifacts during animation: set `Cols/Rows` so that the frames don't end up split

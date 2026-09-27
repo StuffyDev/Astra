@@ -246,9 +246,17 @@ Project 面板中的 **Console** 标签页：引擎、脚本以及编译错误�
 
 **创建**：`GameObject ▸ Create 3D ▸ Cube / Plane / Sphere / OBJ Model`（在 2D 场景里创建 3D 物体会
 自动把该场景切换成 3D）。Inspector 里任何实体都有一个 **3D Object** 复选框：Position 3 /
-Rotation 3（以度为单位，顺序 X→Y→Z）/ Scale 3、**Mesh**（Cube/Plane/Sphere/OBJ）、`.obj` 路径、
-Mesh Texture、Mesh Color。3D 实体仍然保留 `transform.position/scale` —— 它们是 2D 遗留所需要的，
-而 3D 中的位置取自 `pos3`。
+Rotation 3（以度为单位，顺序 X→Y→Z）/ Scale 3、**Mesh**（Cube / Plane / Sphere / **OBJ** /
+**glTF**）、模型路径、Mesh Texture、Mesh Color。3D 实体仍然保留 `transform.position/scale` ——
+它们是 2D 遗留所需要的，而 3D 中的位置取自 `pos3`。
+
+**模型：glTF 与 OBJ。** glTF 2.0（`Mesh` = glTF）是首选格式：`.glb`（全部内容在一个文件里）和
+`.gltf`（JSON + 外部 `.bin` 或 `data:` URI base64）都能读。支持第一个 mesh 及其所有图元、
+`POSITION`/`NORMAL`/`TEXCOORD_0`、u32/u16/u8 索引、交错的 `byteStride`、`normalized` 属性；
+文件里没有法线时，引擎按面算出平面法线。`baseColorTexture` 里的贴图路径会作为提示显示在
+Inspector 中 — 图片要你自己放到 `Mesh Texture` 里。节点变换、蒙皮、动画、PBR 金属度与 Draco
+暂不支持（在计划中）。OBJ（`Mesh` = OBJ）依然保留：v/vt/vn、多边形 → 三角形、没有 `vn` 时用面法线。
+`.gltf` 的外部 `.bin` 会进入场景的依赖，打包时和模型本身一样被加密。
 
 **光照** —— 带阴影的 Lambertian 漫反射：`diffuse = max(dot(n, sun), 0) * shadow + Ambient`，
 太阳方向/颜色与 ambient 在 Edit ▸ Settings ▸ Lighting (3D) 里设置，并保存到 `~/.astra/config.ini`。
@@ -267,8 +275,10 @@ Mesh Texture、Mesh Color。3D 实体仍然保留 `transform.position/scale` —
 是 2D 机制，在 3D 分支里不参与。绘制 mesh 之前会清空深度缓冲，因此立方体之间不会互相「透视穿透」。
 
 **序列化**：文件头部的一行 `Scene3D: 0|1`，加上实体关键字 `Is3D`、`Pos3`、`Rot3`、`Scale3`、
-`MeshType`（0=Cube、1=Plane、2=Sphere、3=OBJ）、`MeshPath`、`MeshTex`、`MeshColor`、`CamPersp`、
-`CamFov`。旧文件照常加载（`Is3D: 0`、`Scene3D: 0`）。
+`MeshType`（0=Cube、1=Plane、2=Sphere、3=OBJ、4=glTF）、`MeshPath`、`MeshTex`、`MeshColor`、
+`CamPersp`、`CamFov`，以及 3D 物理：`HasRigidbody3D`、`Rb3Kinematic`、`Rb3Velocity`、`Rb3Mass`、
+`Rb3Drag`、`Rb3Gravity`、`HasCollider3D`、`Col3Type`、`Col3Trigger`、`Col3Center`、`Col3Half`、
+`Col3Radius`。旧文件照常加载（`Is3D: 0`、`Scene3D: 0`）。
 
 **游戏打包**：`MeshPath` 里的 `.obj` 与 `MeshTex` 里的图片会被加入场景的依赖列表，
 也就是和纹理、音频一样被复制/加密（见第 11 节）。
@@ -276,5 +286,13 @@ Mesh Texture、Mesh Color。3D 实体仍然保留 `transform.position/scale` —
 **示例**：`assets/scenes/3d_demo.scene` —— 一台带阴影的透视相机下的一块地面、三个立方体和一个球
 （在 Project 里双击打开）。
 
-**3D 后续计划**：3D 物理（面向三轴的 Rigidbody/Collider）、骨骼动画、用 glTF 取代 OBJ、
-把 Mesh Renderer 从 Sprite 拆成独立组件、正交视图模式、多光源照明。
+**3D 物理**：**Rigidbody (3D)** 与 **Collider (3D)** 组件用 `+ Add Component` 添加
+（只有 3D 实体可以）。重力方向是 `-Y`（在 Edit ▸ Settings ▸ Physics 的 Gravity (3D) 里设置，
+单位 m/s²，与 2D 一样），碰撞体有 Box 和 Sphere 两种；尺寸用 mesh 的单位给出
+（`Half Size 0.5` + `Scale 3 = 100` = 100×100×100 的立方体），旋转按「旋转后的盒子的外轮廓
+（AABB）」来算，缩放则通过 `Scale 3` 生效。`Is Kinematic` —— 物体由脚本/父物体带动；
+`Is Trigger` —— 不做推开，事件与 2D 完全相同：`OnTriggerEnter/Exit`、`OnCollisionEnter`。
+碰撞体的线框在 Scene 中可见（绿色 — 实体，浅蓝 — 触发器）。子物体不参与积分 —— 它们由父物体带动。
+
+**3D 后续计划**：骨骼动画与 glTF 动画、把 Mesh Renderer 从 Sprite 拆成独立组件、
+正交视图模式、多个光源、用 PBR 材质取代 Lambert。
