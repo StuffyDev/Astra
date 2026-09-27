@@ -24,5 +24,9 @@ struct Entity {
     bool hasUI = false;
     UIComponent ui;
     AudioSource audio;
+    bool hasTilemap = false;
+    Tilemap tilemap;
+    ParticleEmitter emitter;
+    std::vector<Particle> particles; // runtime-состояние частиц
     bool active = true;
 };

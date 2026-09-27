@@ -12,6 +12,8 @@
 #include <filesystem>
 #include <unordered_map>
 #include <unordered_set>
+#include <random>
+#include <memory>
 
 #ifndef SCRIPT_INCLUDES
 #define SCRIPT_INCLUDES "-I."
@@ -172,6 +174,8 @@ void DestroyInstance(uint32_t id) {
 void LoadPath(const std::string& cppPath) {
     if (g_Libs.count(cppPath) || g_Failed.count(cppPath)) return;
     std::string so = SoPathFor(cppPath);
+    // Билд с зашифрованными ассетами: исходника может не быть — используем готовый .so
+    if (!std::filesystem::exists(cppPath) && std::filesystem::exists(so)) { OpenScript(so, cppPath); return; }
     if (!SoUpToDate(cppPath)) {
         std::string log;
         if (!CompileScript(cppPath, so, log)) {
@@ -280,6 +284,25 @@ void Script::SetVar(const char* name, float value) {
 
 void LoadScene(const std::string& scenePath) {
     g_PendingScene = scenePath;
+}
+
+void EmitParticles(Entity* e, int count) {
+    if (!e || !g_Scene) return;
+    ParticleEmitter& em = e->emitter;
+    em.active = true;
+    glm::vec2 origin = Transforms::WorldPosition(g_Scene->GetEntities(), *e);
+    static std::mt19937 rng{std::random_device{}()};
+    auto u01 = [&]() { return std::uniform_real_distribution<float>(0.0f, 1.0f)(rng); };
+    for (int i = 0; i < count && (int)e->particles.size() < em.maxCount; i++) {
+        float ang = glm::radians(em.angleMin + u01() * (em.angleMax - em.angleMin));
+        float spd = em.speedMin + u01() * (em.speedMax - em.speedMin);
+        Particle pt;
+        pt.position = origin;
+        pt.velocity = glm::vec2(std::cos(ang), std::sin(ang)) * spd;
+        pt.life = em.lifeMin + u01() * (em.lifeMax - em.lifeMin);
+        pt.size = em.sizeMin + u01() * (em.sizeMax - em.sizeMin);
+        e->particles.push_back(pt);
+    }
 }
 
 void Scripting::SetScene(SceneManager* sm) {

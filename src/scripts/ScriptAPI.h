@@ -81,6 +81,22 @@ inline void PlayAnimation(Entity* e, bool fromStart = false) {
 }
 inline void StopAnimation(Entity* e) { if (e) e->animation.active = false; }
 inline bool IsAnimating(const Entity* e) { return e && e->animation.active; }
+// Именованный клип: true, если клип найден и запущен
+inline bool PlayClip(Entity* e, const char* clipName, bool fromStart = true) {
+    if (!e || !clipName) return false;
+    auto& clips = e->animation.clips;
+    for (size_t i = 0; i < clips.size(); i++) {
+        if (clips[i].name == clipName) {
+            e->animation.activeClip = (int)i;
+            e->animation.active = true;
+            if (fromStart) e->animTime = 0.0f;
+            return true;
+        }
+    }
+    return false;
+}
+// Выплюнуть пачку частиц из эмиттера сущности (взрыв/искры)
+void EmitParticles(Entity* e, int count);
 
 inline float Lerp(float a, float b, float t) { return a + (b - a) * t; }
 inline float Clamp(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }

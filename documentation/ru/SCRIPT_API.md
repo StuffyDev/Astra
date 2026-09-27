@@ -90,8 +90,12 @@ Audio::SetMasterVolume(0..1); Audio::SetMuted(bool);
 GameUI::WasClicked(entityId);              // true один кадр после клика
 GameUI::GetValue(entityId);                // float: слайдер 0..1-диапазон, чекбокс 0/1
 
-// Спрайт-анимация
+// Спрайт-анимация и клипы
 PlayAnimation(Owner(), /*fromStart=*/true); StopAnimation(Owner()); IsAnimating(Owner());
+bool ok = PlayClip(Owner(), "run");            // клип из таблицы Clips в инспекторе
+
+// Частицы: мгновенная пачка из эмиттера сущности (взрыв/искры)
+EmitParticles(Owner(), 30);
 ```
 
 ## 4. Доступ к сцене

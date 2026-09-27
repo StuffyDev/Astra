@@ -23,7 +23,9 @@ void Scene::Render(Camera* camera, SceneManager* sceneManager, int width, int he
 
     m_Renderer->BeginScene(camera, width, height);
     m_Renderer->RenderGrid(camera);
+    m_Renderer->RenderTilemaps(sceneManager->GetEntities(), camera);
     m_Renderer->RenderEntities(sceneManager->GetEntities(), camera);
+    m_Renderer->RenderParticles(sceneManager->GetEntities(), camera);
     m_Renderer->RenderColliders(sceneManager->GetEntities(), camera);
     m_Renderer->RenderGizmo(sceneManager->GetSelectedEntityPtr(), sceneManager->GetEntities(),
                              camera, width, height, m_GizmoMode, m_GizmoAxis);
@@ -56,7 +58,9 @@ void Scene::RenderGameView(Camera* gameCamera, SceneManager* sceneManager, int w
     m_GameFB->Bind();
 
     m_Renderer->BeginScene(gameCamera, width, height);
+    m_Renderer->RenderTilemaps(sceneManager->GetEntities(), gameCamera);
     m_Renderer->RenderEntities(sceneManager->GetEntities(), gameCamera);
+    m_Renderer->RenderParticles(sceneManager->GetEntities(), gameCamera);
     m_Renderer->EndScene();
 
     m_GameFB->Unbind();

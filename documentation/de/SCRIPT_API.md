@@ -90,8 +90,12 @@ Audio::SetMasterVolume(0..1); Audio::SetMuted(bool);
 GameUI::WasClicked(entityId);              // true für einen Frame nach dem Klick
 GameUI::GetValue(entityId);                // float: Slider im 0..1-Bereich, Checkbox 0/1
 
-// Sprite-Animation
+// Sprite-Animation und Clips
 PlayAnimation(Owner(), /*fromStart=*/true); StopAnimation(Owner()); IsAnimating(Owner());
+bool ok = PlayClip(Owner(), "run");            // ein Clip aus der Clips-Tabelle im Inspector
+
+// Partikel: sofortiger Schwall aus dem Emitter der Entity (Explosion/Funken)
+EmitParticles(Owner(), 30);
 ```
 
 ## 4. Zugriff auf die Szene

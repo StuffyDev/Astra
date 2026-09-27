@@ -61,5 +61,6 @@ private:
     void Update(float deltaTime);
     void Render(float deltaTime);
     void ConsumePhysicsEvents();
+    void PaintTileAtMouse();
     void SeedDemoScene();
 };

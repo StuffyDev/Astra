@@ -1,5 +1,7 @@
 #include "core/Audio.h"
+#include "utils/AssetIO.h"
 #include <miniaudio.h>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 #include <iostream>
@@ -8,6 +10,8 @@ namespace {
 
 struct Voice {
     ma_sound sound;
+    std::vector<unsigned char> bytes;   // расшифрованные данные (шрифт/звук в билде)
+    std::unique_ptr<ma_decoder> decoder;
     bool alive = false;
     bool loop = false;
 };
@@ -23,7 +27,9 @@ std::string g_LastError;
 void StopVoice(Voice& v) {
     if (!v.alive) return;
     ma_sound_stop(&v.sound);
-    ma_sound_uninit(&v.sound);
+    ma_sound_uninit(&v.sound);   // раньше decoder: он ссылается на bytes
+    v.decoder.reset();
+    v.bytes.clear();
     v.alive = false;
 }
 
@@ -53,7 +59,15 @@ void Audio::Shutdown() {
 uint32_t Audio::Play(const std::string& path, float volume, float pitch, bool loop) {
     if (!Init()) return 0;
     Voice v;
-    if (ma_sound_init_from_file(&g_Engine, path.c_str(), 0, nullptr, nullptr, &v.sound) != MA_SUCCESS) {
+    if (!AssetIO::ReadBytes(path, v.bytes) || v.bytes.empty()) {
+        g_LastError = "Failed to load sound: " + path;
+        std::cerr << "[Audio] " << g_LastError << "\n";
+        return 0;
+    }
+    v.decoder = std::make_unique<ma_decoder>();
+    if (ma_decoder_init_memory(v.bytes.data(), static_cast<size_t>(v.bytes.size()),
+                               nullptr, v.decoder.get()) != MA_SUCCESS ||
+        ma_sound_init_from_data_source(&g_Engine, v.decoder.get(), 0, nullptr, &v.sound) != MA_SUCCESS) {
         g_LastError = "Failed to load sound: " + path;
         std::cerr << "[Audio] " << g_LastError << "\n";
         return 0;
@@ -64,7 +78,7 @@ uint32_t Audio::Play(const std::string& path, float volume, float pitch, bool lo
     ma_sound_set_volume(&v.sound, volume);
     ma_sound_set_pitch(&v.sound, pitch);
     ma_sound_start(&v.sound);
-    g_Voices[id] = v;
+    g_Voices.emplace(id, std::move(v));
     return id;
 }
 

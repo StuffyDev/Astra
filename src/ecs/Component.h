@@ -1,6 +1,7 @@
 #pragma once
 #include <glm/glm.hpp>
 #include <string>
+#include <vector>
 
 enum class SpriteType {
     None,
@@ -34,6 +35,15 @@ struct Sprite {
     int sortingOrder = 0;
 };
 
+// Именованный клип внутри одного спрайтшита (кадры [first..last] по сетке)
+struct AnimClip {
+    std::string name = "clip";
+    int first = 0;
+    int last = 0;
+    float fps = 8.0f;
+    bool loop = true;
+};
+
 // покадровая анимация по сетке спрайтшита (row 0 = верхний ряд)
 struct SpriteAnimation {
     bool active = false;       // крутится ли (в Edit — превью, в Play — по playOnAwake)
@@ -43,6 +53,48 @@ struct SpriteAnimation {
     float fps = 8.0f;
     bool loop = true;
     bool playOnAwake = true;   // включать при входе в Play
+    std::vector<AnimClip> clips; // пусто — гоняем всю сетку целиком
+    int activeClip = 0;
+};
+
+// Тайлмап: сетка тайлов из атласа (index = row*colsW + col, -1 пусто).
+// transform.position сущности = ЛЕВЫЙ ВЕРХ сетки; row 0 — верхний ряд.
+struct Tilemap {
+    std::string texturePath;   // атлас тайлов
+    int tileW = 64;
+    int tileH = 64;
+    int atlasCols = 8;         // тайлов в строку атласа
+    int width = 20;
+    int height = 12;
+    std::vector<int> cells;    // width*height индексов тайла
+    glm::vec4 color = glm::vec4(1.0f);
+    int sortingOrder = -100;   // по умолчанию под спрайтами
+};
+
+// Летающая частица (runtime, не сериализуется)
+struct Particle {
+    glm::vec2 position;
+    glm::vec2 velocity;
+    float age = 0.0f;
+    float life = 1.0f;
+    float size = 24.0f;
+};
+
+struct ParticleEmitter {
+    bool active = false;
+    std::string texturePath;           // пусто — цветной квадрат
+    int maxCount = 200;
+    float rate = 20.0f;                // частиц/с
+    float lifeMin = 0.4f, lifeMax = 1.2f;
+    float speedMin = 60.0f, speedMax = 220.0f;
+    float angleMin = 0.0f, angleMax = 360.0f; // градусы, 0=+X, 90=+Y
+    float gravity = 0.0f;              // px/s^2 вниз
+    float sizeMin = 8.0f, sizeMax = 28.0f;
+    glm::vec4 colorStart = glm::vec4(1.0f);
+    glm::vec4 colorEnd = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);
+    bool loop = true;
+    bool playOnAwake = true;
+    float emitAcc = 0.0f;              // runtime-накопитель
 };
 
 struct Rigidbody {

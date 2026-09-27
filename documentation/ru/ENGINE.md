@@ -78,6 +78,13 @@ Import File...).
   через неё; UI-элементы позиционируются в мировых координатах этого вида.
 - **UI Element** — см. раздел 7.
 - **Audio Source** — Clip Path, Volume, Pitch, Loop, Play On Awake, кнопки Preview/Stop.
+- **Tilemap** — сетка тайлов из атласа: Atlas Path, Tile Size, Atlas Cols, Grid W×H, Tint,
+  Sorting Order (по умолчанию под спрайтами). Пикер тайла показывает атлас сеткой; текущий тайл —
+  инструмент **Tile (T)**: ЛКМ рисует по сетке выбранной тайлмап-сущности, Shift+ЛКМ стирает.
+  `transform.position` сущности = левый верх сетки. Кнопки Fill floor/Clear для быстрого старта.
+- **Particle Emitter** — текстура (или квадрат), max/rate, life/speed/angle min-max, gravity,
+  size start/end, color start/end (альфа угасает), Loop, Play On Awake, кнопка Burst.
+  Из скриптов: `EmitParticles(Owner(), 30)`.
 - **Script** — C++-скрипт (SCRIPT_API.md). **Script Variables** — `DefineVar("speed", 120)`
   в `Start()`, ползунок появляется в инспекторе, значение сериализуется в сцену.
 
@@ -127,7 +134,7 @@ Entity + компонент UI Element: **Button / Text / Slider / Checkbox / Pr
 | Ctrl+C / Ctrl+V | копировать / вставить поддерево сущности |
 | Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y | undo / redo |
 | Del / Backspace | удалить сущность | F2 — переименовать |
-| W / E / R / Q | Move / Rotate / Scale / Hand |
+| W / E / R / Q / T | Move / Rotate / Scale / Hand / Tile (кисть тайлмапа) |
 | Ctrl+↑ / ↓ | переставить сиблинга | F — фокус камеры на выбранном |
 | Ctrl (удерживать при drag) | снап гизмо (50 px / 15°) |
 | ESC | выход из Play; в плеере — закрыть игру |
@@ -161,6 +168,12 @@ ESC закрывает.
 CLI без GUI: `./Astra --build assets/scenes/x.scene --out ./game [--single|--folder]`
 (по умолчанию — режим 1). Флаги плеера: `--play`, `--scene <path>`, `--project <dir>`.
 В игре доступен весь скриптовый API, включая `LoadScene` (уровни) и `Log`.
+
+**Только нужное + шифрование**: в билд попадают НЕ все `assets/`, а только файлы, реально
+используемые сценой (текстуры/шейдеры/звуки/атласы тайлмапа/частиц + рекурсивно префабы).
+Все они шифруются (`AENC`: XOR-поток splitmix64) и прозрачно расшифровываются движком при
+чтении — в папке игры нет сырых текстур/сцен/звуков. `.so` скриптов не шифруются (их грузит
+dlopen). Это обфускация «от любопытных глаз», не криптозащита от взлома.
 
 ## 12. Консоль
 

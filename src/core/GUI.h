@@ -54,6 +54,8 @@ public:
 
     bool IsAnyPopupOpen() const { return m_PopupOpen; }
 
+    int GetCurrentTile() const { return m_CurrentTile; }
+
 private:
     GLFWwindow* m_Window;
     bool m_SceneHovered = false;
@@ -99,6 +101,9 @@ private:
     // Restore после Stop пересобирает вектор сущностей)
     uint32_t m_InspectorEntityId = 0;
     char m_TexturePathBuffer[512] = {};
+    char m_TilemapTexBuffer[512] = {};
+    char m_ParticleTexBuffer[512] = {};
+    int m_CurrentTile = 0;
     char m_AnimTextureBuffer[512] = {};
     char m_UILabelBuffer[256] = {};
     char m_ScriptPathBuffer[512] = {};

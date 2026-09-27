@@ -1,4 +1,5 @@
 #include "core/SceneSerializer.h"
+#include "utils/AssetIO.h"
 #include "ecs/SceneManager.h"
 #include "ecs/Entity.h"
 #include <fstream>
@@ -70,6 +71,37 @@ void WriteEntity(std::ostream& file, const Entity& e, const std::unordered_map<u
     file << "SoundPitch: " << e.audio.pitch << "\n";
     file << "SoundLoop: " << (e.audio.loop ? 1 : 0) << "\n";
     file << "SoundPlayOnAwake: " << (e.audio.playOnAwake ? 1 : 0) << "\n";
+    if (!e.animation.clips.empty()) {
+        file << "AnimClips: ";
+        for (size_t i = 0; i < e.animation.clips.size(); i++) {
+            const AnimClip& c = e.animation.clips[i];
+            file << (i ? ";" : "") << c.name << "|" << c.first << "|" << c.last << "|" << c.fps << "|" << (c.loop ? 1 : 0);
+        }
+        file << "\n";
+        file << "AnimActiveClip: " << e.animation.activeClip << "\n";
+    }
+    file << "HasTilemap: " << (e.hasTilemap ? 1 : 0) << "\n";
+    if (e.hasTilemap) {
+        file << "TilemapTex: " << e.tilemap.texturePath << "\n";
+        file << "TilemapTile: " << e.tilemap.tileW << " " << e.tilemap.tileH << " " << e.tilemap.atlasCols << "\n";
+        file << "TilemapSize: " << e.tilemap.width << " " << e.tilemap.height << "\n";
+        file << "TilemapColor: " << e.tilemap.color.r << " " << e.tilemap.color.g << " " << e.tilemap.color.b << " " << e.tilemap.color.a << "\n";
+        file << "TilemapSort: " << e.tilemap.sortingOrder << "\n";
+        file << "TilemapCells:";
+        for (int v : e.tilemap.cells) file << " " << v;
+        file << "\n";
+    }
+    file << "ParticleActive: " << (e.emitter.active ? 1 : 0) << "\n";
+    file << "ParticleTex: " << e.emitter.texturePath << "\n";
+    file << "ParticleMax: " << e.emitter.maxCount << " " << e.emitter.rate << "\n";
+    file << "ParticleLife: " << e.emitter.lifeMin << " " << e.emitter.lifeMax << "\n";
+    file << "ParticleSpeed: " << e.emitter.speedMin << " " << e.emitter.speedMax << "\n";
+    file << "ParticleAngle: " << e.emitter.angleMin << " " << e.emitter.angleMax << "\n";
+    file << "ParticleGravity: " << e.emitter.gravity << "\n";
+    file << "ParticleSize: " << e.emitter.sizeMin << " " << e.emitter.sizeMax << "\n";
+    file << "ParticleC1: " << e.emitter.colorStart.r << " " << e.emitter.colorStart.g << " " << e.emitter.colorStart.b << " " << e.emitter.colorStart.a << "\n";
+    file << "ParticleC2: " << e.emitter.colorEnd.r << " " << e.emitter.colorEnd.g << " " << e.emitter.colorEnd.b << " " << e.emitter.colorEnd.a << "\n";
+    file << "ParticleLoop: " << (e.emitter.loop ? 1 : 0) << " " << (e.emitter.playOnAwake ? 1 : 0) << "\n";
     file << "END_ENTITY\n";
 }
 
@@ -124,11 +156,12 @@ bool SceneSerializer::Load(SceneManager* sceneManager, const std::string& path) 
 }
 
 bool SceneSerializer::LoadEntities(const std::string& path, std::vector<Entity>& out) {
-    std::ifstream file(path);
-    if (!file.is_open()) {
+    std::string text = AssetIO::ReadAll(path);
+    if (text.empty()) {
         std::cerr << "Failed to load: " << path << "\n";
         return false;
     }
+    std::istringstream file(text);
 
     std::string line;
     std::getline(file, line); // header
@@ -217,6 +250,50 @@ bool SceneSerializer::LoadEntities(const std::string& path, std::vector<Entity>&
             else if (key == "SoundPitch:") { iss >> current.audio.pitch; }
             else if (key == "SoundLoop:") { int v; iss >> v; current.audio.loop = v; }
             else if (key == "SoundPlayOnAwake:") { int v; iss >> v; current.audio.playOnAwake = v; }
+            else if (key == "AnimClips:") {
+                std::string line; std::getline(iss, line); line = TrimLead(line);
+                current.animation.clips.clear();
+                size_t pos = 0;
+                while (pos < line.size()) {
+                    size_t semi = line.find(';', pos);
+                    std::string part = line.substr(pos, (semi == std::string::npos ? line.size() : semi) - pos);
+                    size_t p1 = part.find('|'), p2 = part.find('|', p1 + 1), p3 = part.find('|', p2 + 1), p4 = part.find('|', p3 + 1);
+                    if (p1 != std::string::npos && p4 != std::string::npos) {
+                        AnimClip c;
+                        c.name = part.substr(0, p1);
+                        c.first = std::stoi(part.substr(p1 + 1, p2 - p1 - 1));
+                        c.last = std::stoi(part.substr(p2 + 1, p3 - p2 - 1));
+                        c.fps = std::stof(part.substr(p3 + 1, p4 - p3 - 1));
+                        c.loop = std::stoi(part.substr(p4 + 1)) != 0;
+                        current.animation.clips.push_back(c);
+                    }
+                    if (semi == std::string::npos) break;
+                    pos = semi + 1;
+                }
+            }
+            else if (key == "AnimActiveClip:") { iss >> current.animation.activeClip; }
+            else if (key == "HasTilemap:") { int v; iss >> v; current.hasTilemap = v; }
+            else if (key == "TilemapTex:") { std::getline(iss, current.tilemap.texturePath); current.tilemap.texturePath = TrimLead(current.tilemap.texturePath); }
+            else if (key == "TilemapTile:") { iss >> current.tilemap.tileW >> current.tilemap.tileH >> current.tilemap.atlasCols; }
+            else if (key == "TilemapSize:") { iss >> current.tilemap.width >> current.tilemap.height; }
+            else if (key == "TilemapColor:") { iss >> current.tilemap.color.r >> current.tilemap.color.g >> current.tilemap.color.b >> current.tilemap.color.a; }
+            else if (key == "TilemapSort:") { iss >> current.tilemap.sortingOrder; }
+            else if (key == "TilemapCells:") {
+                current.tilemap.cells.clear();
+                int v;
+                while (iss >> v) current.tilemap.cells.push_back(v);
+            }
+            else if (key == "ParticleActive:") { int v; iss >> v; current.emitter.active = v; }
+            else if (key == "ParticleTex:") { std::getline(iss, current.emitter.texturePath); current.emitter.texturePath = TrimLead(current.emitter.texturePath); }
+            else if (key == "ParticleMax:") { iss >> current.emitter.maxCount >> current.emitter.rate; }
+            else if (key == "ParticleLife:") { iss >> current.emitter.lifeMin >> current.emitter.lifeMax; }
+            else if (key == "ParticleSpeed:") { iss >> current.emitter.speedMin >> current.emitter.speedMax; }
+            else if (key == "ParticleAngle:") { iss >> current.emitter.angleMin >> current.emitter.angleMax; }
+            else if (key == "ParticleGravity:") { iss >> current.emitter.gravity; }
+            else if (key == "ParticleSize:") { iss >> current.emitter.sizeMin >> current.emitter.sizeMax; }
+            else if (key == "ParticleC1:") { iss >> current.emitter.colorStart.r >> current.emitter.colorStart.g >> current.emitter.colorStart.b >> current.emitter.colorStart.a; }
+            else if (key == "ParticleC2:") { iss >> current.emitter.colorEnd.r >> current.emitter.colorEnd.g >> current.emitter.colorEnd.b >> current.emitter.colorEnd.a; }
+            else if (key == "ParticleLoop:") { int a, b; iss >> a >> b; current.emitter.loop = a; current.emitter.playOnAwake = b; }
         }
     }
 

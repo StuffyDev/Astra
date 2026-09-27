@@ -2,6 +2,7 @@
 #include "core/Camera.h"
 #include "core/SystemShaders.h"
 #include "core/Prefs.h"
+#include "utils/AssetIO.h"
 #include "ecs/Entity.h"
 #include "ecs/Physics.h"
 #include "ecs/Transforms.h"
@@ -21,6 +22,7 @@ Renderer::~Renderer() { Shutdown(); }
 void Renderer::Init() {
     SetupGridBuffers();
     SetupQuad();
+    SetupBatch();
     SetupGizmoBuffers();
     SetupColliderBuffers(); // <-- новое
     SetupWhiteTexture();
@@ -280,11 +282,7 @@ static std::string StripVersionLine(const std::string& src) {
 }
 
 static std::string LoadShaderFile(const std::string& path) {
-    std::ifstream file(path);
-    if (!file.is_open()) return "";
-    std::stringstream buffer;
-    buffer << file.rdbuf();
-    return buffer.str();
+    return AssetIO::ReadAll(path);   // прозрачно расшифровывает билд-ассеты
 }
 
 Shader* Renderer::GetUserShader(const std::string& basePath) {
@@ -331,10 +329,20 @@ void Renderer::EndScene() {}
 static glm::vec4 AnimationRect(const Entity& entity) {
     const SpriteAnimation& a = entity.animation;
     if (!a.active || a.cols < 1 || a.rows < 1) return glm::vec4(0.0f, 0.0f, 1.0f, 1.0f);
-    const int total = a.cols * a.rows;
-    long frame = static_cast<long>(std::floor(std::max(entity.animTime, 0.0f) * std::max(a.fps, 0.01f)));
-    if (a.loop) frame %= total;
-    else frame = std::min(frame, static_cast<long>(total - 1));
+    int first = 0, last = a.cols * a.rows - 1, count = a.cols * a.rows;
+    float fps = a.fps;
+    bool loop = a.loop;
+    if (!a.clips.empty()) {
+        const AnimClip& c = a.clips[std::clamp(a.activeClip, 0, (int)a.clips.size() - 1)];
+        first = std::clamp(c.first, 0, a.cols * a.rows - 1);
+        last = std::clamp(c.last, first, a.cols * a.rows - 1);
+        count = last - first + 1;
+        fps = c.fps;
+        loop = c.loop;
+    }
+    long frame = static_cast<long>(std::floor(std::max(entity.animTime, 0.0f) * std::max(fps, 0.01f)));
+    if (loop) frame = first + frame % count;
+    else frame = std::min(first + frame, static_cast<long>(last));
     const int col = static_cast<int>(frame % a.cols);
     const int row = static_cast<int>(frame / a.cols);
     return glm::vec4(col / static_cast<float>(a.cols),
@@ -396,6 +404,7 @@ void Renderer::RenderEntities(const std::vector<Entity>& entities, Camera* camer
                 m_SpriteTextureShader->SetMat4("u_MVP", mvp);
                 m_SpriteTextureShader->SetVec3("u_Color", entity.sprite.color);
                 m_SpriteTextureShader->SetVec4("u_UVRect", uvRect);
+                m_SpriteTextureShader->SetFloat("u_Alpha", 1.0f);
                 glActiveTexture(GL_TEXTURE0);
                 glBindTexture(GL_TEXTURE_2D, texture);
                 m_SpriteTextureShader->SetInt("u_Texture", 0);
@@ -403,6 +412,7 @@ void Renderer::RenderEntities(const std::vector<Entity>& entities, Camera* camer
                 m_SpriteShader->Use();
                 m_SpriteShader->SetMat4("u_MVP", mvp);
                 m_SpriteShader->SetVec3("u_Color", entity.sprite.color);
+                m_SpriteShader->SetFloat("u_Alpha", 1.0f);
             }
             glBindVertexArray(m_QuadVAO);
             glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
@@ -412,6 +422,7 @@ void Renderer::RenderEntities(const std::vector<Entity>& entities, Camera* camer
                 m_CircleTextureShader->SetMat4("u_MVP", mvp);
                 m_CircleTextureShader->SetVec3("u_Color", entity.sprite.color);
                 m_CircleTextureShader->SetVec4("u_UVRect", uvRect);
+                m_CircleTextureShader->SetFloat("u_Alpha", 1.0f);
                 glActiveTexture(GL_TEXTURE0);
                 glBindTexture(GL_TEXTURE_2D, texture);
                 m_CircleTextureShader->SetInt("u_Texture", 0);
@@ -419,9 +430,115 @@ void Renderer::RenderEntities(const std::vector<Entity>& entities, Camera* camer
                 m_CircleShader->Use();
                 m_CircleShader->SetMat4("u_MVP", mvp);
                 m_CircleShader->SetVec3("u_Color", entity.sprite.color);
+                m_CircleShader->SetFloat("u_Alpha", 1.0f);
             }
             glBindVertexArray(m_QuadVAO);
             glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+        }
+    }
+    glBindVertexArray(0);
+}
+
+glm::ivec2 Renderer::GetTextureSize(const std::string& path) {
+    auto it = m_TextureCache.find(path);
+    if (it == m_TextureCache.end()) return glm::ivec2(0, 0);
+    return glm::ivec2(it->second->GetWidth(), it->second->GetHeight());
+}
+
+void Renderer::SetupBatch() {
+    glGenVertexArrays(1, &m_BatchVAO);
+    glBindVertexArray(m_BatchVAO);
+    glGenBuffers(1, &m_BatchVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, m_BatchVBO);
+    glEnableVertexAttribArray(0); // pos
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1); // uv
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+    glBindVertexArray(0);
+}
+
+static void AppendBatchQuad(std::vector<float>& v,
+                            float x0, float y0, float x1, float y1,
+                            float u0, float v0, float u1, float v1) {
+    // два треугольника; uv: v0 — верх, v1 — низ (текстура загружена flip=true)
+    const float verts[6][4] = {
+        { x0, y1, u0, v1 }, { x1, y1, u1, v1 }, { x1, y0, u1, v0 },
+        { x0, y1, u0, v1 }, { x1, y0, u1, v0 }, { x0, y0, u0, v0 },
+    };
+    for (auto& q : verts) v.insert(v.end(), q, q + 4);
+}
+
+void Renderer::RenderTilemaps(const std::vector<Entity>& entities, Camera* camera) {
+    glm::mat4 vp = camera->GetViewProjectionMatrix();
+    m_SpriteTextureShader->Use();
+    m_SpriteTextureShader->SetMat4("u_MVP", vp);
+    m_SpriteTextureShader->SetVec4("u_UVRect", glm::vec4(0.0f, 0.0f, 1.0f, 1.0f));
+    m_SpriteTextureShader->SetInt("u_Texture", 0);
+    glBindVertexArray(m_BatchVAO);
+    for (const auto& e : entities) {
+        if (!e.hasTilemap || !e.active || e.tilemap.texturePath.empty()) continue;
+        const Tilemap& tm = e.tilemap;
+        GLuint tex = GetTexture(tm.texturePath);
+        if (!tex) continue;
+        glm::ivec2 texSize = GetTextureSize(tm.texturePath);
+        const int colsTotal = std::max(1, texSize.x / std::max(tm.tileW, 1));
+        const int rowsTotal = std::max(1, texSize.y / std::max(tm.tileH, 1));
+        const int need = (int)(tm.width * tm.height);
+        if ((int)tm.cells.size() < need) continue;
+        float x0 = e.transform.position.x, yTop = e.transform.position.y;
+        std::vector<float> verts;
+        verts.reserve((size_t)need * 24);
+        for (int r = 0; r < tm.height; r++) {
+            for (int c = 0; c < tm.width; c++) {
+                int idx = tm.cells[(size_t)r * tm.width + c];
+                if (idx < 0) continue;
+                int ac = (idx % std::max(tm.atlasCols, 1));
+                int ar = idx / std::max(tm.atlasCols, 1);
+                if (ac >= colsTotal || ar >= rowsTotal) continue;
+                float u0 = ac / (float)colsTotal, u1 = (ac + 1) / (float)colsTotal;
+                float vT = 1.0f - ar / (float)rowsTotal, vB = 1.0f - (ar + 1) / (float)rowsTotal;
+                float qx0 = x0 + c * tm.tileW, qx1 = qx0 + tm.tileW;
+                float qy1 = yTop - r * tm.tileH, qy0 = qy1 - tm.tileH;
+                AppendBatchQuad(verts, qx0, qy0, qx1, qy1, u0, vT, u1, vB);
+            }
+        }
+        if (verts.empty()) continue;
+        m_SpriteTextureShader->SetVec3("u_Color", glm::vec3(tm.color));
+        m_SpriteTextureShader->SetFloat("u_Alpha", tm.color.a);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glBindBuffer(GL_ARRAY_BUFFER, m_BatchVBO);
+        glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(float), verts.data(), GL_DYNAMIC_DRAW);
+        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)verts.size() / 4);
+    }
+    glBindVertexArray(0);
+}
+
+void Renderer::RenderParticles(const std::vector<Entity>& entities, Camera* camera) {
+    glm::mat4 vp = camera->GetViewProjectionMatrix();
+    m_SpriteTextureShader->Use();
+    m_SpriteTextureShader->SetMat4("u_MVP", vp);
+    m_SpriteTextureShader->SetVec4("u_UVRect", glm::vec4(0.0f, 0.0f, 1.0f, 1.0f));
+    m_SpriteTextureShader->SetInt("u_Texture", 0);
+    glBindVertexArray(m_BatchVAO);
+    for (const auto& e : entities) {
+        if (!e.active || e.particles.empty()) continue;
+        GLuint tex = e.emitter.texturePath.empty() ? m_WhiteTexture : GetTexture(e.emitter.texturePath);
+        if (!tex) tex = m_WhiteTexture;
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        for (const auto& pt : e.particles) {
+            float t = pt.life > 0.0f ? std::clamp(pt.age / pt.life, 0.0f, 1.0f) : 1.0f;
+            glm::vec4 col = glm::mix(e.emitter.colorStart, e.emitter.colorEnd, t);
+            float h = pt.size * 0.5f;
+            std::vector<float> verts;
+            AppendBatchQuad(verts, pt.position.x - h, pt.position.y - h,
+                            pt.position.x + h, pt.position.y + h, 0.0f, 1.0f, 1.0f, 0.0f);
+            m_SpriteTextureShader->SetVec3("u_Color", glm::vec3(col));
+            m_SpriteTextureShader->SetFloat("u_Alpha", col.a);
+            glBindBuffer(GL_ARRAY_BUFFER, m_BatchVBO);
+            glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(float), verts.data(), GL_DYNAMIC_DRAW);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
         }
     }
     glBindVertexArray(0);

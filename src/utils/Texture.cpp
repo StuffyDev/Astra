@@ -1,6 +1,8 @@
 #include "utils/Texture.h"
+#include "utils/AssetIO.h"
 #include <stb_image.h>
 #include <iostream>
+#include <vector>
 
 Texture::Texture(Texture&& other) noexcept
     : m_ID(other.m_ID), m_Width(other.m_Width), m_Height(other.m_Height) {
@@ -21,7 +23,13 @@ Texture& Texture::operator=(Texture&& other) noexcept {
 bool Texture::LoadFromFile(const std::string& path) {
     int channels = 0;
     stbi_set_flip_vertically_on_load(true);
-    unsigned char* data = stbi_load(path.c_str(), &m_Width, &m_Height, &channels, 4);
+    std::vector<unsigned char> bytes;
+    if (!AssetIO::ReadBytes(path, bytes)) {
+        std::cerr << "Failed to read texture: " << path << "\n";
+        return false;
+    }
+    unsigned char* data = stbi_load_from_memory(bytes.data(), static_cast<int>(bytes.size()),
+                                                &m_Width, &m_Height, &channels, 4);
     if (!data) {
         std::cerr << "Failed to load texture: " << path << " (" << stbi_failure_reason() << ")\n";
         return false;

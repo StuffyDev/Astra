@@ -90,8 +90,12 @@ Audio::SetMasterVolume(0..1); Audio::SetMuted(bool);
 GameUI::WasClicked(entityId);              // true for one frame after a click
 GameUI::GetValue(entityId);                // float: slider in its 0..1 range, checkbox 0/1
 
-// Sprite animation
+// Sprite animation and clips
 PlayAnimation(Owner(), /*fromStart=*/true); StopAnimation(Owner()); IsAnimating(Owner());
+bool ok = PlayClip(Owner(), "run");            // a clip from the Clips table in the inspector
+
+// Particles: an instant batch from the entity's emitter (explosion/sparks)
+EmitParticles(Owner(), 30);
 ```
 
 ## 4. Accessing the scene

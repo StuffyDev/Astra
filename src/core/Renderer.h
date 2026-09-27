@@ -24,6 +24,8 @@ public:
     void BeginScene(Camera* camera, int width, int height);
     void RenderGrid(Camera* camera);
     void RenderEntities(const std::vector<Entity>& entities, Camera* camera);
+    void RenderTilemaps(const std::vector<Entity>& entities, Camera* camera);
+    void RenderParticles(const std::vector<Entity>& entities, Camera* camera);
     void RenderColliders(const std::vector<Entity>& entities, Camera* camera);
     // mode: 0 = Move, 1 = Rotate, 2 = Scale; activeAxis: -1 = не перетаскивать (0=X,1=Y,2=центр/дуга)
     void RenderGizmo(const Entity* selectedEntity, const std::vector<Entity>& all,
@@ -34,6 +36,7 @@ public:
 
     // Возвращает GL-текстуру из кэша; 0, если загрузка не удалась
     GLuint GetTexture(const std::string& path);
+    glm::ivec2 GetTextureSize(const std::string& path); // (0,0) если нет
 
     // Пользовательский шейдер пары <basePath>.vert/.frag; nullptr, если собрать не удалось
     Shader* GetUserShader(const std::string& basePath);
@@ -49,6 +52,7 @@ private:
 
     GLuint m_GridVAO = 0, m_GridVBO = 0;
     GLuint m_QuadVAO = 0, m_QuadVBO = 0, m_QuadEBO = 0;
+    GLuint m_BatchVAO = 0, m_BatchVBO = 0;
     GLuint m_GizmoVAO = 0, m_GizmoVBO = 0;
     GLuint m_ColliderVAO = 0, m_ColliderVBO = 0;
     GLuint m_WhiteTexture = 0;
@@ -64,6 +68,7 @@ private:
     void SetupGridBuffers();
     void UpdateGrid(Camera* camera);
     void SetupQuad();
+    void SetupBatch();
     void SetupGizmoBuffers();
     void SetupColliderBuffers();
     void SetupWhiteTexture();

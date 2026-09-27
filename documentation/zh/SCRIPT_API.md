@@ -89,8 +89,12 @@ Audio::SetMasterVolume(0..1); Audio::SetMuted(bool);
 GameUI::WasClicked(entityId);              // 点击后的那一帧返回 true
 GameUI::GetValue(entityId);                // float：滑块是 0..1 区间，复选框是 0/1
 
-// 精灵动画
+// 精灵动画与剪辑（Clip）
 PlayAnimation(Owner(), /*fromStart=*/true); StopAnimation(Owner()); IsAnimating(Owner());
+bool ok = PlayClip(Owner(), "run");            // Inspector 中 Clips 表里定义的剪辑
+
+// 粒子：从实体的发射器瞬时喷出一批（爆炸/火花）
+EmitParticles(Owner(), 30);
 ```
 
 ## 4. 访问场景

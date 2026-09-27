@@ -69,7 +69,9 @@ Eine Entity = ein Satz fest vorgegebener Komponenten (im Moment so; ein reines E
   wird früher/unter den anderen gezeichnet, wie in Unity), Custom Shader (siehe SHADER_API.md).
 - **Animation** — Sprite Sheet: `Cols × Rows` (row 0 = oberste Zeile), FPS, Loop, Play On Awake,
   `Active` (im Edit-Modus laufen die Frames als Vorschau). Eigene Sheet Path oder »Use Sprite«.
-  Aus Skripten: `PlayAnimation/StopAnimation/IsAnimating`.
+  Die Tabelle **Clips** — Einträge mit Name, first..last, fps, loop und Play/X-Buttons; ohne Clips
+  läuft das ganze Gitter in Schleife. Aus Skripten: `PlayAnimation/StopAnimation/IsAnimating`,
+  `PlayClip(e, "run")`.
 - **Rigidbody** — Kinematic, Velocity, Mass, Drag, Use Gravity. Physik: fix 60 Hz,
   MTV-Auflösung, Trigger/Kollisionen mit Skriptereignissen.
 - **Collider** — Box (halbe Größe) / Circle (Radius), Is Trigger. Visualisierung in der Scene.
@@ -77,6 +79,14 @@ Eine Entity = ein Satz fest vorgegebener Komponenten (im Moment so; ein reines E
   UI-Elemente werden in Weltkoordinaten dieser Ansicht positioniert.
 - **UI Element** — siehe Abschnitt 7.
 - **Audio Source** — Clip Path, Volume, Pitch, Loop, Play On Awake, Buttons Preview/Stop.
+- **Tilemap** — ein Kachelraster aus einem Atlas: Atlas Path, Tile Size, Atlas Cols, Grid W×H, Tint,
+  Sorting Order (standardmäßig unter den Sprites). Der Pick-Tile-Popup zeigt den Atlas als Raster;
+  die aktuelle Kachel setzt das Werkzeug **Tile (T)**: LMB malt die gewählte Kachel ins Raster der
+  gewählten Entity, Shift+LMB löscht. `transform.position` der Entity = linke obere Ecke des Rasters.
+  Für den schnellen Start gibt es Fill floor/Clear.
+- **Particle Emitter** — Textur (oder Quadrat), max/rate, life/speed/angle min-max, gravity,
+  size start/end, color start/end (Alpha blendet aus), Loop, Play On Awake, Button Burst.
+  Aus Skripten: `EmitParticles(Owner(), 30)`.
 - **Script** — C++-Skript (SCRIPT_API.md). **Script Variables** — `DefineVar("speed", 120)`
   in `Start()`, der Regler erscheint im Inspector, der Wert wird in die Szene serialisiert.
 
@@ -163,6 +173,13 @@ Oberfläche arbeiten, ESC schließt sie.
 CLI ohne GUI: `./Astra --build assets/scenes/x.scene --out ./game [--single|--folder]`
 (Standard ist Modus 1). Player-Flags: `--play`, `--scene <path>`, `--project <dir>`. Im Spiel steht
 die komplette Skript-API zur Verfügung, einschließlich `LoadScene` (Level) und `Log` (schreibt in die Konsole).
+
+**Nur das Notwendige + Verschlüsselung**: in den Build wandern NICHT alle `assets/`, sondern nur die Dateien,
+die die Szene tatsächlich benutzt (Texturen/Shader/Audio/Tilemap- & Particle-Atlase + die Prefabs rekursiv).
+Alle werden verschlüsselt (`AENC`: ein XOR-Keystream aus splitmix64) und beim Lesen von der Engine transparent
+entschlüsselt — im Spielordner liegen keine rohen Texturen/Szenen/Audios. Die `.so` der Skripte bleiben roh
+(die lädt dlopen). Das ist Verschleierung »gegen neugierige Blicke«, keine kryptografische Absicherung
+gegen Cracking.
 
 ## 12. Konsole
 

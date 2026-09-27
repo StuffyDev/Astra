@@ -10,6 +10,7 @@
 #include "core/Input.h"
 #include "core/Scripting.h"
 #include "utils/ConsoleLog.h"
+#include "utils/AssetIO.h"
 #include "ecs/SceneManager.h"
 #include "ecs/Entity.h"
 #include "ecs/Transforms.h"
@@ -33,6 +34,7 @@
 #include <filesystem>
 #include <unordered_map>
 #include <unordered_set>
+#include <set>
 
 namespace fs = std::filesystem;
 
@@ -154,6 +156,26 @@ static uint64_t ComputeSignatureFor(const std::vector<Entity>& ents) {
         FnvUpdate(h, &e.audio.pitch, sizeof(e.audio.pitch));
         FnvUpdate(h, &e.audio.loop, sizeof(e.audio.loop));
         FnvUpdate(h, &e.audio.playOnAwake, sizeof(e.audio.playOnAwake));
+        FnvUpdate(h, &e.hasTilemap, sizeof(e.hasTilemap));
+        if (e.hasTilemap) {
+            FnvStr(h, e.tilemap.texturePath);
+            FnvUpdate(h, &e.tilemap.tileW, sizeof(int) * 5);
+            FnvUpdate(h, e.tilemap.cells.data(), e.tilemap.cells.size() * sizeof(int));
+            FnvUpdate(h, &e.tilemap.color, sizeof(e.tilemap.color));
+            FnvUpdate(h, &e.tilemap.sortingOrder, sizeof(e.tilemap.sortingOrder));
+        }
+        FnvUpdate(h, &e.emitter.active, sizeof(e.emitter.active));
+        FnvStr(h, e.emitter.texturePath);
+        FnvUpdate(h, &e.emitter.maxCount, sizeof(int) + sizeof(float));
+        FnvUpdate(h, &e.emitter.lifeMin, sizeof(float) * 8);
+        FnvUpdate(h, &e.emitter.colorStart, sizeof(e.emitter.colorStart));
+        FnvUpdate(h, &e.emitter.colorEnd, sizeof(e.emitter.colorEnd));
+        for (const auto& c : e.animation.clips) {
+            FnvStr(h, c.name);
+            FnvUpdate(h, &c.first, sizeof(int) * 2);
+            FnvUpdate(h, &c.fps, sizeof(float));
+        }
+        FnvUpdate(h, &e.animation.activeClip, sizeof(e.animation.activeClip));
         FnvUpdate(h, &e.rigidbody, sizeof(e.rigidbody));
         FnvUpdate(h, &e.collider, sizeof(e.collider));
         FnvUpdate(h, &e.hasCamera, sizeof(e.hasCamera));
@@ -592,6 +614,7 @@ void GUI::HandleHotkeys(EditorContext& ctx) {
         if (in.WasKeyPressed(GLFW_KEY_E)) ctx.scene->SetGizmoMode(1);
         if (in.WasKeyPressed(GLFW_KEY_R)) ctx.scene->SetGizmoMode(2);
         if (in.WasKeyPressed(GLFW_KEY_Q)) ctx.scene->SetGizmoMode(3);
+        if (in.WasKeyPressed(GLFW_KEY_T)) ctx.scene->SetGizmoMode(4);
     }
 }
 
@@ -816,10 +839,10 @@ void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
 
         // Инструменты сцены: W/E/R/Q
         ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
-        static const char* toolNames[4] = { "Move", "Rotate", "Scale", "Hand" };
-        static const char* toolKeys[4] = { "W", "E", "R", "Q" };
+        static const char* toolNames[5] = { "Move", "Rotate", "Scale", "Hand", "Tile" };
+        static const char* toolKeys[5] = { "W", "E", "R", "Q", "T" };
         int gmode = scene->GetGizmoMode();
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 5; i++) {
             ImGui::SameLine();
             char label[32];
             snprintf(label, sizeof(label), "%s (%s)", toolNames[i], toolKeys[i]);
@@ -1337,6 +1360,10 @@ void GUI::RenderInspector(EditorContext& ctx) {
                      "%s", selected->sprite.texturePath.c_str());
             snprintf(m_AnimTextureBuffer, sizeof(m_AnimTextureBuffer),
                      "%s", selected->animation.texturePath.c_str());
+            snprintf(m_TilemapTexBuffer, sizeof(m_TilemapTexBuffer),
+                     "%s", selected->tilemap.texturePath.c_str());
+            snprintf(m_ParticleTexBuffer, sizeof(m_ParticleTexBuffer),
+                     "%s", selected->emitter.texturePath.c_str());
             snprintf(m_UILabelBuffer, sizeof(m_UILabelBuffer), "%s", selected->ui.label.c_str());
             snprintf(m_ScriptPathBuffer, sizeof(m_ScriptPathBuffer), "%s", selected->scriptPath.c_str());
             snprintf(m_AudioPathBuffer, sizeof(m_AudioPathBuffer), "%s", selected->audio.path.c_str());
@@ -1367,6 +1394,10 @@ void GUI::RenderInspector(EditorContext& ctx) {
         } else if (!ImGui::IsItemActive() && selected->animation.texturePath != m_AnimTextureBuffer) {
             snprintf(m_AnimTextureBuffer, sizeof(m_AnimTextureBuffer),
                      "%s", selected->animation.texturePath.c_str());
+            snprintf(m_TilemapTexBuffer, sizeof(m_TilemapTexBuffer),
+                     "%s", selected->tilemap.texturePath.c_str());
+            snprintf(m_ParticleTexBuffer, sizeof(m_ParticleTexBuffer),
+                     "%s", selected->emitter.texturePath.c_str());
         }
         ImGui::SameLine();
         if (ImGui::Button("Use Sprite##animtex")) {
@@ -1393,6 +1424,182 @@ void GUI::RenderInspector(EditorContext& ctx) {
         ImGui::ColorEdit4("u_PColor", &selected->sprite.materialColor.r);
         ImGui::TextDisabled("Доступны в пользовательских .frag (u_Params, u_PColor).\n"
                             "Пример: vec2 offset = u_Params.xy; float s = u_Params.z; fragColor *= u_PColor;");
+
+        // --- Клипы анимации (нормальное меню) ---
+        if (selected->animation.active || !selected->animation.clips.empty()) {
+            ImGui::Indent();
+            if (ImGui::CollapsingHeader("Clips", ImGuiTreeNodeFlags_DefaultOpen)) {
+                auto& clips = selected->animation.clips;
+                int totalFrames = std::max(selected->animation.cols, 1) * std::max(selected->animation.rows, 1);
+                for (size_t i = 0; i < clips.size(); i++) {
+                    AnimClip& c = clips[i];
+                    ImGui::PushID((int)i);
+                    ImGui::SetNextItemWidth(90.0f);
+                    ImGui::InputText("##clipName", &c.name);
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(50.0f);
+                    if (ImGui::DragInt("##first", &c.first, 1.0f, 0, totalFrames - 1)) c.first = std::clamp(c.first, 0, totalFrames - 1);
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(50.0f);
+                    if (ImGui::DragInt("##last", &c.last, 1.0f, 0, totalFrames - 1)) c.last = std::clamp(c.last, 0, totalFrames - 1);
+                    if (c.last < c.first) c.last = c.first;
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(55.0f);
+                    ImGui::DragFloat("##fps", &c.fps, 0.5f, 0.5f, 60.0f, "%.0f");
+                    ImGui::SameLine();
+                    ImGui::Checkbox("##loop", &c.loop);
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Play")) {
+                        selected->animation.activeClip = (int)i;
+                        selected->animation.active = true;
+                        selected->animTime = 0.0f;
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("X")) {
+                        clips.erase(clips.begin() + (long)i);
+                        if (selected->animation.activeClip >= (int)clips.size())
+                            selected->animation.activeClip = std::max(0, (int)clips.size() - 1);
+                        ImGui::PopID();
+                        break;
+                    }
+                    if (selected->animation.activeClip == (int)i) {
+                        ImGui::SameLine();
+                        ImGui::TextColored(ImVec4(0.97f, 0.6f, 0.16f, 1.0f), "<");
+                    }
+                    ImGui::PopID();
+                }
+                if (ImGui::SmallButton("+ Add Clip")) {
+                    AnimClip c;
+                    c.name = "clip" + std::to_string(clips.size() + 1);
+                    c.first = 0;
+                    c.last = totalFrames - 1;
+                    c.fps = selected->animation.fps;
+                    clips.push_back(c);
+                }
+                ImGui::SameLine();
+                ImGui::TextDisabled("PlayClip(e,\"run\) из скриптов");
+            }
+            ImGui::Unindent();
+        }
+
+        // --- Tilemap ---
+        ImGui::Separator();
+        ImGui::Text("Tilemap");
+        if (ImGui::Checkbox("Enable", &selected->hasTilemap)) {
+            Tilemap& tm = selected->tilemap;
+            tm.cells.assign((size_t)std::max(tm.width, 1) * std::max(tm.height, 1), -1);
+        }
+        if (selected->hasTilemap) {
+            Tilemap& tm = selected->tilemap;
+            ImGui::InputText("Atlas Path", m_TilemapTexBuffer, sizeof(m_TilemapTexBuffer));
+            if (ImGui::IsItemDeactivatedAfterEdit()) tm.texturePath = m_TilemapTexBuffer;
+            else if (!ImGui::IsItemActive() && tm.texturePath != m_TilemapTexBuffer)
+                snprintf(m_TilemapTexBuffer, sizeof(m_TilemapTexBuffer), "%s", tm.texturePath.c_str());
+            ImGui::SameLine();
+            if (ImGui::Button("Use Sprite##atlas")) {
+                tm.texturePath = selected->sprite.texturePath;
+                snprintf(m_TilemapTexBuffer, sizeof(m_TilemapTexBuffer), "%s", tm.texturePath.c_str());
+            }
+            ImGui::DragInt("Tile Size", &tm.tileW, 1.0f, 4, 1024);
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(60.0f);
+            ImGui::DragInt("##th", &tm.tileH, 1.0f, 4, 1024);
+            ImGui::SameLine();
+            ImGui::DragInt("Atlas Cols", &tm.atlasCols, 1.0f, 1, 64);
+            int oldW = tm.width, oldH = tm.height;
+            ImGui::DragInt("Grid W x H", &tm.width, 1.0f, 1, 512);
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(60.0f);
+            ImGui::DragInt("##gh", &tm.height, 1.0f, 1, 512);
+            if (tm.width != oldW || tm.height != oldH) tm.cells.assign((size_t)tm.width * tm.height, -1);
+            if ((int)tm.cells.size() < tm.width * tm.height) tm.cells.resize((size_t)tm.width * tm.height, -1);
+            ImGui::ColorEdit4("Tint", &tm.color.r);
+            ImGui::DragInt("Sorting Order", &tm.sortingOrder, 1.0f);
+            ImGui::Text("Current tile: %d   ", m_CurrentTile);
+            ImGui::SameLine();
+            if (ImGui::Button("Pick Tile")) ImGui::OpenPopup("TilePicker");
+            ImGui::SameLine();
+            if (ImGui::Button("Fill floor")) {
+                for (int r = tm.height / 2; r < tm.height; r++)
+                    for (int c = 0; c < tm.width; c++) tm.cells[(size_t)r * tm.width + c] = m_CurrentTile;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Clear")) std::fill(tm.cells.begin(), tm.cells.end(), -1);
+            ImGui::TextDisabled("Инструмент Tile (T): ЛКМ — положить, Shift+ЛКМ — стереть.");
+
+            if (ImGui::BeginPopup("TilePicker", ImGuiWindowFlags_AlwaysAutoResize)) {
+                GLuint atex = tm.texturePath.empty() ? 0 : ctx.renderer->GetTexture(tm.texturePath);
+                glm::ivec2 asize = ctx.renderer->GetTextureSize(tm.texturePath);
+                if (!atex || asize.x <= 0 || asize.y <= 0) {
+                    ImGui::TextDisabled("Загрузи атлас (Atlas Path)");
+                } else {
+                    int colsTotal = std::max(1, asize.x / std::max(tm.tileW, 1));
+                    int rowsTotal = std::max(1, asize.y / std::max(tm.tileH, 1));
+                    const float cell = 44.0f;
+                    for (int r = 0; r < rowsTotal; r++) {
+                        for (int c = 0; c < colsTotal; c++) {
+                            int idx = r * tm.atlasCols + c;
+                            if (c >= colsTotal) continue;
+                            float u0 = c / (float)colsTotal, u1 = (c + 1) / (float)colsTotal;
+                            float v0 = 1.0f - r / (float)rowsTotal, v1 = 1.0f - (r + 1) / (float)rowsTotal;
+                            ImGui::PushID(idx);
+                            if (m_CurrentTile == idx) ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.97f, 0.6f, 0.16f, 1));
+                            if (ImGui::ImageButton("##t", (ImTextureID)(intptr_t)atex, ImVec2(cell, cell),
+                                                   ImVec2(u0, v0), ImVec2(u1, v1))) {
+                                m_CurrentTile = idx;
+                                ImGui::CloseCurrentPopup();
+                            }
+                            if (m_CurrentTile == idx) ImGui::PopStyleColor();
+                            ImGui::PopID();
+                            if ((c + 1) % std::min(colsTotal, tm.atlasCols) == 0) ImGui::NewLine();
+                            else ImGui::SameLine();
+                        }
+                    }
+                    ImGui::TextDisabled("index = row*AtlasCols+col");
+                }
+                ImGui::EndPopup();
+            }
+        }
+
+        // --- Particle Emitter ---
+        ImGui::Separator();
+        ImGui::Text("Particle Emitter");
+        if (ImGui::Checkbox("Active", &selected->emitter.active)) {}
+        ParticleEmitter& em = selected->emitter;
+        ImGui::InputText("Particle Tex", m_ParticleTexBuffer, sizeof(m_ParticleTexBuffer));
+        if (ImGui::IsItemDeactivatedAfterEdit()) em.texturePath = m_ParticleTexBuffer;
+        else if (!ImGui::IsItemActive() && em.texturePath != m_ParticleTexBuffer)
+            snprintf(m_ParticleTexBuffer, sizeof(m_ParticleTexBuffer), "%s", em.texturePath.c_str());
+        ImGui::DragInt("Max / Rate", &em.maxCount, 1.0f, 1, 5000);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(70.0f);
+        ImGui::DragFloat("##rate", &em.rate, 1.0f, 0.1f, 2000.0f, "%.0f/s");
+        ImGui::DragFloat2("Life min/max", &em.lifeMin, 0.05f, 0.05f, 10.0f);
+        ImGui::DragFloat2("Speed min/max", &em.speedMin, 1.0f, 0.0f, 2000.0f);
+        ImGui::DragFloat2("Angle min/max", &em.angleMin, 1.0f, -360.0f, 360.0f);
+        ImGui::DragFloat("Gravity", &em.gravity, 10.0f, -2000.0f, 2000.0f);
+        ImGui::DragFloat2("Size min/max", &em.sizeMin, 0.5f, 1.0f, 512.0f);
+        ImGui::ColorEdit4("Color Start", &em.colorStart.r);
+        ImGui::ColorEdit4("Color End", &em.colorEnd.r);
+        ImGui::Checkbox("Loop", &em.loop);
+        ImGui::SameLine();
+        ImGui::Checkbox("Play On Awake", &em.playOnAwake);
+        if (ImGui::Button("Burst")) {
+            glm::vec2 origin = Transforms::WorldPosition(sceneManager->GetEntities(), *selected);
+            int n = std::min(em.maxCount / 2 + 1, em.maxCount - (int)selected->particles.size());
+            for (int i = 0; i < n; i++) {
+                float ang = glm::radians(em.angleMin + (em.angleMax - em.angleMin) * (float)rand() / RAND_MAX);
+                float spd = em.speedMin + (em.speedMax - em.speedMin) * (float)rand() / RAND_MAX;
+                Particle pt;
+                pt.position = origin;
+                pt.velocity = glm::vec2(std::cos(ang), std::sin(ang)) * spd;
+                pt.life = em.lifeMin + (em.lifeMax - em.lifeMin) * (float)rand() / RAND_MAX;
+                pt.size = em.sizeMin + (em.sizeMax - em.sizeMin) * (float)rand() / RAND_MAX;
+                selected->particles.push_back(pt);
+            }
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("%zu live", selected->particles.size());
 
         // --- Пользовательский шейдер ---
         ImGui::Text("Custom Shader");
@@ -2904,6 +3111,34 @@ static std::string ReadAllBytes(const fs::path& path) {
 
 static const char* kBundleMagic = "ASTRAPKG";
 
+// Сбор реально используемых ассетов: из сцены рекурсивно по ссылкам компонентов (+префабы)
+static void CollectSceneDeps(const std::string& scenePath, std::set<std::string>& out, int depth = 0) {
+    if (depth > 8) return;
+    std::string text = ReadAllBytes(scenePath);
+    if (text.empty()) return;
+    static const char* keys[] = { "TexturePath: ", "ShaderPath: ", "AnimTexture: ", "SoundPath: ",
+                                  "PrefabSource: ", "TilemapTex: ", "ParticleTex: " };
+    std::istringstream ss(text);
+    std::string line;
+    while (std::getline(ss, line)) {
+        for (const char* key : keys) {
+            size_t klen = strlen(key);
+            if (line.rfind(key, 0) != 0) continue;
+            std::string v = line.substr(klen);
+            while (!v.empty() && (v.back() == ' ' || v.back() == '\r')) v.pop_back();
+            if (v.empty()) continue;
+            std::error_code ec;
+            if (fs::is_regular_file(v, ec)) {
+                if (!out.count(v)) { out.insert(v); if (v.size() > 7 && v.compare(v.size()-7, 7, ".prefab") == 0) CollectSceneDeps(v, out, depth+1); }
+            } else if (fs::is_regular_file(v + ".frag", ec)) {
+                if (out.insert(v + ".frag").second) {}
+                if (fs::is_regular_file(v + ".vert", ec)) out.insert(v + ".vert");
+            }
+            break;
+        }
+    }
+}
+
 static std::string launcherQuote(const std::string& s) {
     std::string out = "'";
     for (char c : s) {
@@ -2980,30 +3215,34 @@ bool AstraBuildGame(const std::string& exeSrc, const std::string& scenePath,
 
     std::string gameJson = "{\n  \"scene\": \"" + scenePath + "\",\n  \"project\": \"astra-game\"\n}\n";
 
+    // Только реально используемые ассеты — и в зашифрованном виде
+    std::set<std::string> deps;
+    deps.insert(scenePath); // сама стартовая сцена тоже шифруется
+    CollectSceneDeps(scenePath, deps);
     auto copyAssetsAndScripts = [&](void) -> bool {
         std::error_code ec;
-        if (fs::is_directory("assets", ec)) {
-            fs::path assetsOut = dest / "assets";
-            if (fs::exists(assetsOut, ec)) fs::remove_all(assetsOut, ec);
-            std::error_code ec2;
-            for (fs::recursive_directory_iterator it("assets", fs::directory_options::skip_permission_denied, ec2), e;
-                 it != e; ++it) {
-                fs::path rel = fs::relative(it->path(), "assets", ec2);
-                fs::path target = assetsOut / rel;
-                if (it->is_directory()) { fs::create_directories(target, ec2); continue; }
-                fs::copy_file(it->path(), target, fs::copy_options::overwrite_existing, ec2);
-            }
-            std::cout << "[Build] assets -> " << assetsOut.string() << "\n";
-        }
-        fs::create_directories(dest / "build-scripts", ec);
         bool okc = true;
+        size_t totalBytes = 0;
+        for (const auto& rel : deps) {
+            fs::path target = dest / rel;
+            std::error_code ec2;
+            fs::create_directories(target.parent_path(), ec2);
+            std::string data = ReadAllBytes(rel);
+            if (data.empty() || !AssetIO::WriteEncrypted(target.string(), data)) {
+                std::cerr << "[Build] encrypt failed: " << rel << "\n";
+                okc = false;
+                continue;
+            }
+            totalBytes += data.size();
+        }
+        std::cout << "[Build] assets: " << deps.size() << " файлов (" << (totalBytes >> 10) << " KiB), зашифровано\n";
+        fs::create_directories(dest / "build-scripts", ec);
         for (const auto& so : soPaths) {
-            std::error_code ec3;
+            std::error_code ec3;   // .so не шифруем: его грузит dlopen
             fs::copy_file(so, dest / so, fs::copy_options::overwrite_existing, ec3);
             if (ec3) { std::cerr << "[Build] copy .so: " << ec3.message() << "\n"; okc = false; }
         }
-        std::ofstream jf(dest / "game.json");
-        jf << gameJson;
+        if (!AssetIO::WriteEncrypted((dest / "game.json").string(), gameJson)) okc = false;
         return okc;
     };
 
@@ -3014,17 +3253,11 @@ bool AstraBuildGame(const std::string& exeSrc, const std::string& scenePath,
         if (ec) { status = "Копирование бинарника: " + ec.message(); return false; }
 
         std::vector<std::pair<std::string, std::string>> files;
-        if (fs::is_directory("assets", ec)) {
-            for (fs::recursive_directory_iterator it("assets", fs::directory_options::skip_permission_denied, ec), e;
-                 it != e; ++it) {
-                if (it->is_directory()) continue;
-                files.emplace_back(fs::relative(it->path(), ".", ec).string(), ReadAllBytes(it->path()));
-            }
-        }
+        for (const auto& rel : deps) files.emplace_back(rel, AssetIO::Encrypt(ReadAllBytes(rel)));
         for (const auto& so : soPaths) {
-            if (fs::exists(so, ec)) files.emplace_back(so, ReadAllBytes(so));
+            if (fs::exists(so, ec)) files.emplace_back(so, ReadAllBytes(so));  // .so — как есть (dlopen)
         }
-        files.emplace_back("game.json", gameJson);
+        files.emplace_back("game.json", AssetIO::Encrypt(gameJson));
 
         std::ofstream ef(outExe, std::ios::binary | std::ios::app);
         if (!ef.is_open()) { status = "Не удалось дописать бандл в exe"; return false; }

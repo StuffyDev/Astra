@@ -4,7 +4,9 @@
 #include "core/Scripting.h"
 #include "core/Prefs.h"
 #include "utils/ConsoleLog.h"
+#include "utils/AssetIO.h"
 #include "ecs/Transforms.h"
+#include <algorithm>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <imgui.h>
@@ -15,6 +17,14 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <random>
+#include <memory>
+
+static float RandomU01() {
+    static std::mt19937 rng{std::random_device{}()};
+    return std::uniform_real_distribution<float>(0.0f, 1.0f)(rng);
+}
+
 
 Application::Application(const AppOptions& options) {
     // Single-exe игра? Если к этому бинарнику приклеен бандл — распаковываем
@@ -74,11 +84,8 @@ Application::Application(const AppOptions& options) {
     if (m_PlayerMode) {
         std::string scene = m_Options.scenePath;
         if (scene.empty()) {
-            std::ifstream gj("game.json");
-            if (gj.is_open()) {
-                std::stringstream ss;
-                ss << gj.rdbuf();
-                std::string txt = ss.str();
+            std::string txt = AssetIO::ReadAll("game.json");
+            {
                 size_t k = txt.find("\"scene\"");
                 size_t q1 = k == std::string::npos ? std::string::npos : txt.find('"', txt.find(':', k) + 1);
                 size_t q2 = q1 == std::string::npos ? std::string::npos : txt.find('"', q1 + 1);
@@ -296,7 +303,7 @@ void Application::ProcessInput(float deltaTime) {
     }
 
     // ===== Выделение в Scene и Gizmo (только в Edit-режиме, Hand-режим тащит камеру) =====
-    if (editing && m_GUI->IsSceneHovered() && !m_ScenePanning && m_Scene->GetGizmoMode() != 3) {
+    if (editing && m_GUI->IsSceneHovered() && !m_ScenePanning && m_Scene->GetGizmoMode() < 3) {
         auto& ents = m_SceneManager->GetEntities();
         Entity* selected = m_SceneManager->GetSelectedEntityPtr();
 
@@ -407,6 +414,12 @@ void Application::ProcessInput(float deltaTime) {
         m_Scene->SetGizmoAxis(-1);
     }
 
+    // Инструмент Tile (T): ЛКМ — положить тайл, Shift+ЛКМ — стереть
+    if (editing && m_Scene->GetGizmoMode() == 4 && m_GUI->IsSceneHovered() && !m_GUI->IsAnyPopupOpen() &&
+        ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        PaintTileAtMouse();
+    }
+
     m_Window->UpdateLastMousePos();
 }
 
@@ -450,6 +463,23 @@ void Application::HandleFileDrops() {
     }
 }
 
+
+void Application::PaintTileAtMouse() {
+    int sel = m_SceneManager->GetSelectedEntity();
+    if (sel < 0) return;
+    auto& ents = m_SceneManager->GetEntities();
+    Entity& e = ents[static_cast<size_t>(sel)];
+    if (!e.hasTilemap) return;
+    Tilemap& tm = e.tilemap;
+    if (tm.cells.size() < (size_t)tm.width * tm.height) tm.cells.assign((size_t)tm.width * tm.height, -1);
+    glm::vec2 world = m_Camera->ScreenToWorld(m_GUI->GetSceneMousePos(), m_GUI->GetSceneSize().x, m_GUI->GetSceneSize().y);
+    int c = (int)std::floor((world.x - e.transform.position.x) / std::max(tm.tileW, 1));
+    int r = (int)std::floor((e.transform.position.y - world.y) / std::max(tm.tileH, 1));
+    if (c < 0 || r < 0 || c >= tm.width || r >= tm.height) return;
+    bool erase = ImGui::GetIO().KeyShift;
+    tm.cells[(size_t)r * tm.width + c] = erase ? -1 : m_GUI->GetCurrentTile();
+}
+
 void Application::Update(float deltaTime) {
     Audio::NewFrame();
 
@@ -458,6 +488,39 @@ void Application::Update(float deltaTime) {
         for (auto& e : m_SceneManager->GetEntities()) {
             if (e.animation.active && e.animation.cols >= 1 && e.animation.rows >= 1)
                 e.animTime += deltaTime;
+        }
+    }
+
+    // Частицы: спавн по rate, интеграция, смерть; Pause — стоп (в Edit — превью)
+    if (m_EditorState != EditorState::Pause) {
+        auto& ents = m_SceneManager->GetEntities();
+        for (auto& e : ents) {
+            ParticleEmitter& em = e.emitter;
+            if (!em.active || !e.active) continue;
+            glm::vec2 origin = Transforms::WorldPosition(ents, e);
+            if (em.loop) {
+                em.emitAcc += em.rate * deltaTime;
+                int spawn = (int)em.emitAcc;
+                em.emitAcc -= spawn;
+                for (int i = 0; i < spawn && (int)e.particles.size() < em.maxCount; i++) {
+                    float ang = glm::radians(em.angleMin + RandomU01() * (em.angleMax - em.angleMin));
+                    float spd = em.speedMin + RandomU01() * (em.speedMax - em.speedMin);
+                    Particle pt;
+                    pt.position = origin;
+                    pt.velocity = glm::vec2(std::cos(ang), std::sin(ang)) * spd;
+                    pt.life = em.lifeMin + RandomU01() * (em.lifeMax - em.lifeMin);
+                    pt.size = em.sizeMin + RandomU01() * (em.sizeMax - em.sizeMin);
+                    e.particles.push_back(pt);
+                }
+            }
+            for (auto& pt : e.particles) {
+                pt.age += deltaTime;
+                pt.velocity.y -= em.gravity * deltaTime;
+                pt.position += pt.velocity * deltaTime;
+            }
+            e.particles.erase(std::remove_if(e.particles.begin(), e.particles.end(),
+                              [](const Particle& q) { return q.age >= q.life; }),
+                              e.particles.end());
         }
     }
 
@@ -473,6 +536,9 @@ void Application::Update(float deltaTime) {
                 // анимации: playOnAwake как у звука; старт с нуля
                 e.animation.active = e.animation.playOnAwake;
                 e.animTime = 0.0f;
+                e.emitter.active = e.emitter.playOnAwake;
+                e.emitter.emitAcc = 0.0f;
+                e.particles.clear();
             }
             for (const auto& e : m_SceneManager->GetEntities()) {
                 if (e.active && !e.audio.path.empty() && e.audio.playOnAwake) {

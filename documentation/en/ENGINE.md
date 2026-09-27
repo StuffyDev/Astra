@@ -70,7 +70,8 @@ An entity = a set of fixed components (for now; a pure ECS is on the roadmap):
   first/under the rest, just like in Unity), Custom Shader (see SHADER_API.md).
 - **Animation** — a sprite sheet: `Cols × Rows` (row 0 = top row), FPS, Loop, Play On Awake,
   `Active` (in Edit the frames keep playing as a preview). Either a separate Sheet Path or "Use Sprite".
-  From scripts: `PlayAnimation/StopAnimation/IsAnimating`.
+  The **Clips** table — name, first..last, fps, loop, Play/X buttons; with no clips the whole grid loops.
+  From scripts: `PlayAnimation/StopAnimation/IsAnimating`, `PlayClip(e, "run")`.
 - **Rigidbody** — Kinematic, Velocity, Mass, Drag, Use Gravity. Physics: fixed 60 Hz,
   MTV resolution, triggers/collisions with script events.
 - **Collider** — Box (half sizes) / Circle (radius), Is Trigger. Visualized in the Scene.
@@ -78,6 +79,14 @@ An entity = a set of fixed components (for now; a pure ECS is on the roadmap):
   through it; UI elements are positioned in world coordinates of this view.
 - **UI Element** — see section 7.
 - **Audio Source** — Clip Path, Volume, Pitch, Loop, Play On Awake, Preview/Stop buttons.
+- **Tilemap** — a grid of tiles from an atlas: Atlas Path, Tile Size, Atlas Cols, Grid W×H, Tint,
+  Sorting Order (under the sprites by default). The Pick Tile popup shows the atlas as a grid; the current
+  tile is applied with the **Tile (T)** brush: LMB paints the selected tile on the selected entity's grid,
+  Shift+LMB erases. The entity's `transform.position` = the grid's top-left corner.
+  Fill floor/Clear buttons for a quick start.
+- **Particle Emitter** — a texture (or a plain square), max/rate, life/speed/angle min-max, gravity,
+  size start/end, color start/end (the alpha fades out), Loop, Play On Awake, the Burst button.
+  From scripts: `EmitParticles(Owner(), 30)`.
 - **Script** — a C++ script (SCRIPT_API.md). **Script Variables** — `DefineVar("speed", 120)`
   in `Start()`, a slider appears in the inspector, and the value is serialized into the scene.
 
@@ -127,7 +136,7 @@ the script reads `GameUI::WasClicked(id)` / `GameUI::GetValue(id)`.
 | Ctrl+C / Ctrl+V | copy / paste an entity subtree |
 | Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y | undo / redo |
 | Del / Backspace | delete entity | F2 — rename |
-| W / E / R / Q | Move / Rotate / Scale / Hand |
+| W / E / R / Q / T | Move / Rotate / Scale / Hand / Tile (tilemap brush) |
 | Ctrl+↑ / ↓ | move a sibling | F — focus the camera on the selection |
 | Ctrl (hold while dragging) | snap the gizmo (50 px / 15°) |
 | ESC | leave Play; in the player — close the game |
@@ -163,6 +172,12 @@ interface, ESC closes them.
 CLI without a GUI: `./Astra --build assets/scenes/x.scene --out ./game [--single|--folder]`
 (default is mode 1). Player flags: `--play`, `--scene <path>`, `--project <dir>`. In the game,
 the whole script API is available, including `LoadScene` (levels) and `Log` (writes to the console).
+
+**Only what's needed + encryption**: the build contains NOT all of `assets/`, only the files the scene
+actually references (textures/shaders/audio/tilemap & particle atlases + prefabs, recursively). All of
+them are encrypted (`AENC`: an XOR keystream from splitmix64) and decrypted transparently by the engine
+on read — the game folder holds no raw textures/scenes/audio. The scripts' `.so` files stay raw (dlopen
+loads them). This is obfuscation "from curious eyes", not real crypto protection against cracking.
 
 ## 12. Console
 

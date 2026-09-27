@@ -69,7 +69,8 @@ Deselect）；在 Project 中 — 在空白处（Create Folder/Shader/Script、I
   压在其它物体下面，与 Unity 一致）、Custom Shader（见 SHADER_API.md）。
 - **Animation** — 图集动画：`Cols × Rows`（row 0 = 最上面一行）、FPS、Loop、Play On Awake、
   `Active`（在 Edit 模式下帧也会作为预览播放）。可以使用独立的 Sheet Path，或「Use Sprite」。
-  脚本侧接口：`PlayAnimation/StopAnimation/IsAnimating`。
+  **Clips** 表 — 每行包含名称、first..last、fps、loop 以及 Play/X 按钮；没有剪辑时整张网格循环播放。
+  脚本侧接口：`PlayAnimation/StopAnimation/IsAnimating`、`PlayClip(e, "run")`。
 - **Rigidbody** — Kinematic、Velocity、Mass、Drag、Use Gravity。物理：固定 60 Hz、
   MTV 分离解算，触发器/碰撞会派发脚本事件。
 - **Collider** — Box（一半的尺寸）/ Circle（半径）、Is Trigger。在 Scene 中有可视化。
@@ -77,6 +78,13 @@ Deselect）；在 Project 中 — 在空白处（Create Folder/Shader/Script、I
   UI 元素按该视图的世界坐标定位。
 - **UI Element** — 见第 7 节。
 - **Audio Source** — Clip Path、Volume、Pitch、Loop、Play On Awake、Preview/Stop 按钮。
+- **Tilemap** — 由图集拼出的瓦片网格：Atlas Path、Tile Size、Atlas Cols、Grid W×H、Tint、
+  Sorting Order（默认在精灵下面）。Pick Tile 弹窗把图集显示成网格；选中的瓦片由 **Tile (T)** 笔刷绘制：
+  LMB（鼠标左键）在选中的 Tilemap 实体的网格上放置当前瓦片，Shift+LMB 擦除。
+  实体的 `transform.position` = 网格的左上角。Fill floor/Clear 按钮用于快速上手。
+- **Particle Emitter** — 粒子发射器：纹理（或纯色方块）、max/rate、life/speed/angle 的最小-最大值、
+  gravity、size start/end、color start/end（alpha 逐渐衰减）、Loop、Play On Awake、Burst 按钮。
+  脚本侧接口：`EmitParticles(Owner(), 30)`。
 - **Script** — C++ 脚本（SCRIPT_API.md）。**Script Variables** — 在 `Start()` 里调用
   `DefineVar("speed", 120)`，滑块就会出现在 Inspector 中，数值会序列化进场景。
 
@@ -159,6 +167,11 @@ Entity + UI Element 组件：**Button / Text / Slider / Checkbox / Progress Bar*
 不带 GUI 的 CLI：`./Astra --build assets/scenes/x.scene --out ./game [--single|--folder]`
 （默认是模式 1）。播放器参数：`--play`、`--scene <path>`、`--project <dir>`。在游戏中完整的脚本
 API 都可用，包括 `LoadScene`（关卡）和 `Log`（输出到控制台）。
+
+**只打包所需 + 加密**：进入构建的并不是整个 `assets/`，而是场景真正用到的文件（纹理/着色器/音频/
+Tilemap 与粒子的图集 + 递归收集的预设）。它们全部会被加密（`AENC`：splitmix64 生成的 XOR 密钥流），
+引擎读取时透明解密 — 游戏目录里不存在原始的纹理/场景/音频。脚本的 `.so` 不加密（由 dlopen 加载）。
+这是「防好奇眼睛」的混淆，不是真正防破解的加密。
 
 ## 12. 控制台
 
