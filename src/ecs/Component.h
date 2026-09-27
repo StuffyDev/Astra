@@ -30,6 +30,8 @@ struct Sprite {
     // «Material»: 4 числа u_Params и цвет u_PColor — живые параметры шейдера из инспектора
     glm::vec4 materialParams = glm::vec4(0.0f, 1.0f, 0.5f, 1.0f);
     glm::vec4 materialColor = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+    // Порядок отрисовки: меньшее — рисуется раньше (под остальными), как sortingOrder в Unity
+    int sortingOrder = 0;
 };
 
 // покадровая анимация по сетке спрайтшита (row 0 = верхний ряд)

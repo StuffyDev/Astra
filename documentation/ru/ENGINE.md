@@ -57,7 +57,8 @@ cmake --build build -j$(nproc)
 
 - **Transform** — Position/Rotation/Scale. Есть `Parent`: дети наследуют позу родителя
   (мировые матрицы как в Unity, включая масштаб/поворот цепочки).
-- **Sprite** — Type (None/Quad/Circle), Color, Texture Path, Custom Shader (см. SHADER_API.md).
+- **Sprite** — Type (None/Quad/Circle), Color, Texture Path, **Sorting Order** (меньше — рисуется
+  раньше/под остальными, как в Unity), Custom Shader (см. SHADER_API.md).
 - **Animation** — спрайтшит: `Cols × Rows` (row 0 = верхний ряд), FPS, Loop, Play On Awake,
   `Active` (в Edit кадры крутятся как превью). Отдельная Sheet Path или «Use Sprite».
   Из скриптов: `PlayAnimation/StopAnimation/IsAnimating`.
@@ -125,21 +126,32 @@ Entity + компонент UI Element: **Button / Text / Slider / Checkbox / Pr
 
 ## 10. Настройки движка
 
-**Edit ▸ Settings**: гравитация (м/с², Unity-style 0,-9.81), Time Scale (применяется при входе
-в Play, переживает Stop), Master Volume, Mute, статус аудиосистемы.
+**Edit ▸ Settings**:
+- **Physics** — гравитация (м/с², Unity-style 0,-9.81), Pixels per meter (масштаб мира).
+- **Render** — цвет фона сцен/игры, показ сетки и коллайдеров в Scene, шаг сетки/снапа (px).
+- **Editor** — шаг снапа вращения (°).
+- **Time** — Time Scale (применяется при входе в Play, переживает Stop).
+- **Audio** — Master Volume, Mute, статус устройства.
+
+Файловые браузеры (Browse/Import) — обычные окна: можно работать с остальным интерфейсом,
+ESC закрывает.
 
 ## 11. Сборка игры и плеер
 
-**File ▸ Build Game...** — два режима:
+**File ▸ Build Game...** — три режима (как в Godot/UE, движок не дублируется в каждой сборке):
 
-1. **Папка**: `astra` (бинарь) + `assets/` + `build-scripts/*.so` (предкомпилированные скрипты —
-   g++ на целевой машине НЕ нужен) + `game.json` (стартовая сцена). Запуск: `./astra --play`.
-2. **Один исполняемый файл** (галочка): к бинарнику приклеен бандл (всё то же самое).
-   Первый запуск распакует его в `<имя>.bundle/` рядом с собой и запустит игру. Один файл = игра.
+1. **Лаунчер + либка движка (рекомендуется)** — игра собирается как крошечный exe (~18 КБ),
+   линкованный с `libastra_engine.so`. Опция «копировать либку рядом» (rpath `$ORIGIN`) —
+   папка переносима; без неё — либка берётся из папки сборки. Скрипты предкомпилированы
+   в `.so` — g++ на целевой машине не нужен. Запуск: просто `./имя_игры` (cwd = папка exe).
+2. **Один исполняемый файл** — к бинарнику приклеен бандл (движок + assets + .so + game.json);
+   первый запуск распакует его в `<имя>.bundle/` рядом с собой. Один файл = игра.
+3. **Папка с бинарником** — полная копия `astra` + `assets/` + `build-scripts/` + `game.json`,
+   запуск `./astra --play`.
 
-CLI без GUI: `./Astra --build assets/scenes/x.scene --out ./game [--folder]`.
-Флаги плеера: `--play`, `--scene <path>`, `--project <dir>`. В игре доступен весь скриптовый
-API, включая `LoadScene` (уровни) и `Log` (пишет в консоль).
+CLI без GUI: `./Astra --build assets/scenes/x.scene --out ./game [--single|--folder]`
+(по умолчанию — режим 1). Флаги плеера: `--play`, `--scene <path>`, `--project <dir>`.
+В игре доступен весь скриптовый API, включая `LoadScene` (уровни) и `Log`.
 
 ## 12. Консоль
 

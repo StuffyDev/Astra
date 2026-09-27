@@ -3,6 +3,8 @@ project(Astra VERSION 0.1.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# Все зависимости должны линковаться в libastra_engine.so
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 include(FetchContent)
 
@@ -83,8 +85,8 @@ target_include_directories(imgui PUBLIC
 )
 target_link_libraries(imgui PUBLIC glfw glad)
 
-add_executable(${PROJECT_NAME}
-    src/main.cpp
+# Движок как shared-библиотека: игры линкуются с ней, а не дублируют бинарник
+add_library(AstraEngine SHARED
     src/core/Application.cpp
     src/core/Window.cpp
     src/core/Renderer.cpp
@@ -107,7 +109,9 @@ add_executable(${PROJECT_NAME}
     src/vendor/miniaudio_impl.cpp
 )
 
-target_include_directories(${PROJECT_NAME} PRIVATE
+set_target_properties(AstraEngine PROPERTIES OUTPUT_NAME "astra_engine")
+
+target_include_directories(AstraEngine PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     ${glad_SOURCE_DIR}/include
     ${imgui_SOURCE_DIR}
@@ -118,23 +122,27 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 # Пути для компиляции игровых скриптов (g++ -shared на Play)
 set(SCRIPT_INCLUDES
-    "-I${CMAKE_SOURCE_DIR}/src -I${glm_SOURCE_DIR} -I${glfw_SOURCE_DIR}/include -I${imgui_SOURCE_DIR} -I${stb_SOURCE_DIR}")
+    "-I${CMAKE_SOURCE_DIR}/src -I${glm_SOURCE_DIR} -I${glfw_SOURCE_DIR}/include -I${imgui_SOURCE_DIR} -I${stb_SOURCE_DIR} -I${glad_SOURCE_DIR}/include")
 
-target_compile_definitions(${PROJECT_NAME} PRIVATE
+target_compile_definitions(AstraEngine PUBLIC
     TEMPLATE_DIR="${CMAKE_SOURCE_DIR}/templates/default_project"
     SCRIPT_INCLUDES="${SCRIPT_INCLUDES}"
+    ASTRA_SRC_DIR="${CMAKE_SOURCE_DIR}/src"
 )
 
-# -rdynamic: скрипты (.so) резолвят символы движка через dlopen
-target_link_options(${PROJECT_NAME} PRIVATE -rdynamic)
-
-target_link_libraries(${PROJECT_NAME} PRIVATE
+target_link_libraries(AstraEngine PUBLIC
     glfw
     glm
     glad
     imgui
     ${CMAKE_DL_LIBS}
 )
+
+add_executable(${PROJECT_NAME} src/main.cpp)
+target_link_libraries(${PROJECT_NAME} PRIVATE AstraEngine)
+
+# -rdynamic: скрипты (.so) резолвят символы движка через dlopen
+target_link_options(${PROJECT_NAME} PRIVATE -rdynamic)
 
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory

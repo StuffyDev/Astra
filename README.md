@@ -32,8 +32,9 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j$(nproc)
   GLSL-хелперы (Fbm, Swirl, Palette, Grid…), **Material** — живые `u_Params`/`u_PColor`
   из инспектора.
 - **Звук**: miniaudio, AudioSource (volume/pitch/loop/playOnAwake), мастер-шина.
-- **Релиз**: File ▸ Build Game — папка или **один exe** с приклеенным бандлом ассетов
-  и предкомпилированными скриптами (g++ на целевой машине не нужен). `--play` без редактора.
+- **Релиз**: File ▸ Build Game — **лаунчер ~18 КБ, линкованный с `libastra_engine.so`** (движок
+  не дублируется, Godot-style), либо один exe с приклеенным бандлом, либо папка. Скрипты
+  предкомпилированы — g++ на целевой машине не нужен. CLI: `--build <scene> --out <dir>`.
 
 Примеры: `assets/scenes/black_hole.scene` (шейдерный мир + орбита скриптом),
 `assets/scenes/animation_demo.scene` (спрайтшит + материалы).

@@ -29,7 +29,7 @@ struct ColliderPose {
 class Physics {
 public:
     // 100 пикселей = 1 метр (дефолтный scale сущности)
-    static constexpr float PixelsPerMeter = 100.0f;
+    static inline float PixelsPerMeter = 100.0f; // настраивается в Edit ▸ Settings
     static constexpr float FixedDeltaTime = 1.0f / 60.0f;
     static glm::vec2 Gravity;
 

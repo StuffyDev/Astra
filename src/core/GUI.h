@@ -172,7 +172,8 @@ private:
     std::vector<std::string> m_BuildSceneList;
     std::string m_BuildStatus;
     bool m_BuildRunning = false;
-    bool m_BuildSingleExe = true;
+    int m_BuildMode = 0;            // 0 = лаунчер+либка, 1 = один exe, 2 = папка
+    bool m_BuildCopyEngineLib = true;
 
     // Шрифты для runtime UI
     ImFont* m_FontMedium = nullptr;
@@ -228,10 +229,11 @@ private:
     bool m_PendingRestart = false;
 };
 
-// Сборка игры: папка с astra+assets+build-scripts+game.json или один exe с приклеенным
-// бандлом (singleExe). projectRoot — текущая директория проекта. Статус/ошибки — в status.
+// Сборка игры: mode 0 — маленький лаунчер, линкованный с libastra_engine.so (как в Godot:
+// движок не дублируется, либка кладётся рядом или берётся по пути сборки);
+// mode 1 — один exe с приклеенным бандлом; mode 2 — папка (astra + assets + build-scripts + game.json).
 bool AstraBuildGame(const std::string& exeSrc, const std::string& scenePath,
-                    const std::string& destDir, bool singleExe, std::string& status);
+                    const std::string& destDir, int mode, bool copyEngineLib, std::string& status);
 
 // Ищет бандл в конце собственного исполняемого файла; если есть — распаковывает
 // в каталог рядом с exe и возвращает его (иначе пустую строку)

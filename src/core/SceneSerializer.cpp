@@ -23,6 +23,7 @@ void WriteEntity(std::ostream& file, const Entity& e, const std::unordered_map<u
     file << "Color: " << e.sprite.color.r << " " << e.sprite.color.g << " " << e.sprite.color.b << "\n";
     file << "TexturePath: " << e.sprite.texturePath << "\n";
     file << "ShaderPath: " << e.sprite.shaderPath << "\n";
+    file << "SortingOrder: " << e.sprite.sortingOrder << "\n";
     file << "MaterialParams: " << e.sprite.materialParams.x << " " << e.sprite.materialParams.y
          << " " << e.sprite.materialParams.z << " " << e.sprite.materialParams.w << "\n";
     file << "MaterialColor: " << e.sprite.materialColor.r << " " << e.sprite.materialColor.g
@@ -169,6 +170,7 @@ bool SceneSerializer::LoadEntities(const std::string& path, std::vector<Entity>&
             else if (key == "Color:") { iss >> current.sprite.color.r >> current.sprite.color.g >> current.sprite.color.b; }
             else if (key == "TexturePath:") { std::getline(iss, current.sprite.texturePath); current.sprite.texturePath = TrimLead(current.sprite.texturePath); }
             else if (key == "ShaderPath:") { std::getline(iss, current.sprite.shaderPath); current.sprite.shaderPath = TrimLead(current.sprite.shaderPath); }
+            else if (key == "SortingOrder:") { iss >> current.sprite.sortingOrder; }
             else if (key == "MaterialParams:") { iss >> current.sprite.materialParams.x >> current.sprite.materialParams.y >> current.sprite.materialParams.z >> current.sprite.materialParams.w; }
             else if (key == "MaterialColor:") { iss >> current.sprite.materialColor.r >> current.sprite.materialColor.g >> current.sprite.materialColor.b >> current.sprite.materialColor.a; }
             else if (key == "AnimActive:") { int v; iss >> v; current.animation.active = v; }

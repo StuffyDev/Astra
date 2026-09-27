@@ -2,6 +2,7 @@
 #include "core/Audio.h"
 #include "core/Input.h"
 #include "core/Scripting.h"
+#include "core/Prefs.h"
 #include "utils/ConsoleLog.h"
 #include "ecs/Transforms.h"
 #include <GLFW/glfw3.h>
@@ -379,7 +380,7 @@ void Application::ProcessInput(float deltaTime) {
                 if (mode == 0) {
                     if (axis == 0) worldDelta = glm::vec2(worldDelta.x, 0.0f);
                     else if (axis == 1) worldDelta = glm::vec2(0.0f, worldDelta.y);
-                    if (snap) worldDelta = glm::round(worldDelta / 50.0f) * 50.0f;
+                    if (snap) worldDelta = glm::round(worldDelta / AstraPrefs::GridSize) * AstraPrefs::GridSize;
 
                     // тянем в мировых координатах, результат пересчитываем в локальные
                     glm::mat4 chain = Transforms::ParentWorldMatrix(ents, *selected);
@@ -389,7 +390,7 @@ void Application::ProcessInput(float deltaTime) {
                 } else if (mode == 1) {
                     float angle = std::atan2(worldMouse.y - gpos.y, worldMouse.x - gpos.x);
                     float deg = glm::degrees(angle - m_Scene->GetDragStartAngle());
-                    if (snap) deg = std::round(deg / 15.0f) * 15.0f;
+                    if (snap) deg = std::round(deg / AstraPrefs::SnapDegrees) * AstraPrefs::SnapDegrees;
                     selected->transform.rotation = m_Scene->GetDragStartRotation() + deg;
                 } else { // scale
                     const glm::vec2& startScale = m_Scene->GetDragStartScale();

@@ -7,7 +7,7 @@
 int main(int argc, char** argv) {
     AppOptions opts;
     std::string buildScene, buildOut;
-    bool single = true;
+    int buildMode = 0; // 0 = лаунчер+либка, 1 = один exe, 2 = папка
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
         if (a == "--play" || a == "-p") opts.player = true;
@@ -15,10 +15,11 @@ int main(int argc, char** argv) {
         else if (a == "--scene" && i + 1 < argc) opts.scenePath = argv[++i];
         else if (a == "--build" && i + 1 < argc) buildScene = argv[++i];
         else if (a == "--out" && i + 1 < argc) buildOut = argv[++i];
-        else if (a == "--folder") single = false;
+        else if (a == "--single") buildMode = 1;
+        else if (a == "--folder") buildMode = 2;
     }
 
-    // Головной билд без GUI: ./Astra --build assets/scenes/x.scene --out ./game [--folder]
+    // Головной билд без GUI: ./Astra --build assets/scenes/x.scene --out ./game [--single|--folder]
     if (!buildScene.empty()) {
         if (!opts.projectDir.empty()) {
             std::error_code ec;
@@ -26,7 +27,7 @@ int main(int argc, char** argv) {
         }
         if (buildOut.empty()) buildOut = "game_build";
         std::string status;
-        bool ok = AstraBuildGame("/proc/self/exe", buildScene, buildOut, single, status);
+        bool ok = AstraBuildGame("/proc/self/exe", buildScene, buildOut, buildMode, true, status);
         std::cout << status << "\n";
         return ok ? 0 : 1;
     }

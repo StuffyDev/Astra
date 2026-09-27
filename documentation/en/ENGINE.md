@@ -57,7 +57,8 @@ An entity = a set of fixed components (for now; a pure ECS is on the roadmap):
 
 - **Transform** — Position/Rotation/Scale. There is a `Parent`: children inherit the parent's pose
   (world matrices just like in Unity, including the chain's scale/rotation).
-- **Sprite** — Type (None/Quad/Circle), Color, Texture Path, Custom Shader (see SHADER_API.md).
+- **Sprite** — Type (None/Quad/Circle), Color, Texture Path, **Sorting Order** (a smaller value draws
+  first/under the rest, just like in Unity), Custom Shader (see SHADER_API.md).
 - **Animation** — a sprite sheet: `Cols × Rows` (row 0 = top row), FPS, Loop, Play On Awake,
   `Active` (in Edit the frames keep playing as a preview). Either a separate Sheet Path or "Use Sprite".
   From scripts: `PlayAnimation/StopAnimation/IsAnimating`.
@@ -125,21 +126,34 @@ the script reads `GameUI::WasClicked(id)` / `GameUI::GetValue(id)`.
 
 ## 10. Engine Settings
 
-**Edit ▸ Settings**: gravity (m/s², Unity-style 0,-9.81), Time Scale (applied when entering
-Play, survives Stop), Master Volume, Mute, audio system status.
+**Edit ▸ Settings**:
+- **Physics** — gravity (m/s², Unity-style 0,-9.81), Pixels per meter (the world scale).
+- **Render** — the scene/game background color, showing the grid and the colliders in the Scene,
+  grid/snap step (px).
+- **Editor** — the rotation snap step (°).
+- **Time** — Time Scale (applied when entering Play, survives Stop).
+- **Audio** — Master Volume, Mute, device status.
+
+The file browsers (Browse/Import) are ordinary windows: you can keep working with the rest of the
+interface, ESC closes them.
 
 ## 11. Building the Game and the Player
 
-**File ▸ Build Game...** — two modes:
+**File ▸ Build Game...** — three modes (Godot/UE-style; the engine is not duplicated per build):
 
-1. **Folder**: `astra` (the binary) + `assets/` + `build-scripts/*.so` (precompiled scripts —
-   g++ on the target machine is NOT needed) + `game.json` (the starting scene). Run: `./astra --play`.
-2. **Single executable** (checkbox): a bundle is appended to the binary (the exact same content).
-   The first run unpacks it into `<name>.bundle/` next to itself and launches the game. One file = the game.
+1. **Launcher + engine library (recommended)** — the game builds as a tiny exe (~18 KB) linked
+   against `libastra_engine.so`. The "copy the library next to the game" option (rpath `$ORIGIN`)
+   keeps the folder portable; without it the library is taken from the build folder. Scripts are
+   precompiled to `.so` — no g++ needed on the target machine. Run: just `./game_name`
+   (cwd = the exe's folder).
+2. **Single executable** — a bundle (engine + assets + .so + game.json) is appended to the binary;
+   the first run unpacks it into `<name>.bundle/` next to itself. One file = the game.
+3. **Folder with the astra binary** — a full copy: `astra` + `assets/` + `build-scripts/` +
+   `game.json`. Run: `./astra --play`.
 
-CLI without a GUI: `./Astra --build assets/scenes/x.scene --out ./game [--folder]`.
-Player flags: `--play`, `--scene <path>`, `--project <dir>`. In the game, the whole script API is
-available, including `LoadScene` (levels) and `Log` (writes to the console).
+CLI without a GUI: `./Astra --build assets/scenes/x.scene --out ./game [--single|--folder]`
+(default is mode 1). Player flags: `--play`, `--scene <path>`, `--project <dir>`. In the game,
+the whole script API is available, including `LoadScene` (levels) and `Log` (writes to the console).
 
 ## 12. Console
 

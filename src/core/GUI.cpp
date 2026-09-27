@@ -3,6 +3,7 @@
 #include "core/Scene.h"
 #include "core/SceneSerializer.h"
 #include "core/Renderer.h"
+#include "core/Prefs.h"
 #include "core/ProjectManager.h"
 #include "core/GameUI.h"
 #include "core/Audio.h"
@@ -24,6 +25,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <sys/wait.h>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -108,6 +110,7 @@ static uint64_t ComputeSignatureFor(const std::vector<Entity>& ents) {
         FnvUpdate(h, &e.sprite.color, sizeof(e.sprite.color));
         FnvStr(h, e.sprite.texturePath);
         FnvStr(h, e.sprite.shaderPath);
+        FnvUpdate(h, &e.sprite.sortingOrder, sizeof(e.sprite.sortingOrder));
         FnvUpdate(h, &e.sprite.materialParams, sizeof(e.sprite.materialParams));
         FnvUpdate(h, &e.sprite.materialColor, sizeof(e.sprite.materialColor));
         FnvUpdate(h, &e.animation.active, sizeof(e.animation.active));
@@ -192,38 +195,70 @@ void GUI::Init() {
 
     ImGui::StyleColorsDark();
     ImGuiStyle& style = ImGui::GetStyle();
-    style.WindowRounding = 2.0f;
-    style.FrameRounding = 2.0f;
-    style.GrabRounding = 2.0f;
-    style.TabRounding = 2.0f;
+    // Тема "Astra Slate": тёмный сине-серый, оранжевый акцент, мягкие скругления
+    style.WindowRounding = 5.0f;
+    style.ChildRounding = 4.0f;
+    style.FrameRounding = 4.0f;
+    style.GrabRounding = 3.0f;
+    style.TabRounding = 4.0f;
+    style.PopupRounding = 4.0f;
+    style.ScrollbarRounding = 4.0f;
     style.WindowBorderSize = 1.0f;
     style.FrameBorderSize = 0.0f;
-    style.ItemSpacing = ImVec2(6.0f, 4.0f);
-    style.WindowPadding = ImVec2(8.0f, 8.0f);
+    style.WindowPadding = ImVec2(10.0f, 10.0f);
+    style.FramePadding = ImVec2(8.0f, 4.0f);
+    style.ItemSpacing = ImVec2(8.0f, 5.0f);
+    style.ItemInnerSpacing = ImVec2(5.0f, 3.0f);
+    style.ScrollbarSize = 13.0f;
+    style.GrabMinSize = 14.0f;
+    style.WindowTitleAlign = ImVec2(0.0f, 0.5f);
 
+    const ImVec4 accent = ImVec4(0.97f, 0.60f, 0.16f, 1.00f);
     ImVec4* colors = style.Colors;
-    colors[ImGuiCol_WindowBg] = ImVec4(0.11f, 0.11f, 0.11f, 1.00f);
-    colors[ImGuiCol_ChildBg] = ImVec4(0.10f, 0.10f, 0.10f, 1.00f);
-    colors[ImGuiCol_PopupBg] = ImVec4(0.13f, 0.13f, 0.13f, 0.95f);
-    colors[ImGuiCol_Border] = ImVec4(0.20f, 0.20f, 0.20f, 0.50f);
-    colors[ImGuiCol_TitleBg] = ImVec4(0.08f, 0.08f, 0.08f, 1.00f);
-    colors[ImGuiCol_TitleBgActive] = ImVec4(0.12f, 0.12f, 0.12f, 1.00f);
-    colors[ImGuiCol_MenuBarBg] = ImVec4(0.10f, 0.10f, 0.10f, 1.00f);
-    colors[ImGuiCol_Tab] = ImVec4(0.10f, 0.10f, 0.10f, 1.00f);
-    colors[ImGuiCol_TabHovered] = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
-    colors[ImGuiCol_TabActive] = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
-    colors[ImGuiCol_Header] = ImVec4(0.18f, 0.18f, 0.18f, 1.00f);
-    colors[ImGuiCol_HeaderHovered] = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
-    colors[ImGuiCol_HeaderActive] = ImVec4(0.35f, 0.35f, 0.35f, 1.00f);
-    colors[ImGuiCol_Button] = ImVec4(0.18f, 0.18f, 0.18f, 1.00f);
-    colors[ImGuiCol_ButtonHovered] = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
-    colors[ImGuiCol_ButtonActive] = ImVec4(0.35f, 0.35f, 0.35f, 1.00f);
-    colors[ImGuiCol_FrameBg] = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
-    colors[ImGuiCol_CheckMark] = ImVec4(0.90f, 0.50f, 0.15f, 1.00f);
-    colors[ImGuiCol_SliderGrab] = ImVec4(0.80f, 0.50f, 0.20f, 1.00f);
-    colors[ImGuiCol_DockingPreview] = ImVec4(0.90f, 0.50f, 0.15f, 0.70f);
-    colors[ImGuiCol_DockingEmptyBg] = ImVec4(0.08f, 0.08f, 0.08f, 1.00f);
-    colors[ImGuiCol_Text] = ImVec4(0.85f, 0.85f, 0.85f, 1.00f);
+    colors[ImGuiCol_Text] = ImVec4(0.88f, 0.88f, 0.90f, 1.00f);
+    colors[ImGuiCol_TextDisabled] = ImVec4(0.50f, 0.50f, 0.55f, 1.00f);
+    colors[ImGuiCol_WindowBg] = ImVec4(0.126f, 0.126f, 0.137f, 1.00f);
+    colors[ImGuiCol_ChildBg] = ImVec4(0.118f, 0.118f, 0.128f, 1.00f);
+    colors[ImGuiCol_PopupBg] = ImVec4(0.140f, 0.140f, 0.155f, 0.98f);
+    colors[ImGuiCol_Border] = ImVec4(0.25f, 0.25f, 0.29f, 0.65f);
+    colors[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+    colors[ImGuiCol_FrameBg] = ImVec4(0.165f, 0.165f, 0.185f, 1.00f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.22f, 0.22f, 0.25f, 1.00f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.26f, 0.26f, 0.30f, 1.00f);
+    colors[ImGuiCol_TitleBg] = ImVec4(0.094f, 0.094f, 0.105f, 1.00f);
+    colors[ImGuiCol_TitleBgActive] = ImVec4(0.155f, 0.155f, 0.175f, 1.00f);
+    colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.07f, 0.07f, 0.08f, 1.00f);
+    colors[ImGuiCol_MenuBarBg] = ImVec4(0.105f, 0.105f, 0.118f, 1.00f);
+    colors[ImGuiCol_ScrollbarBg] = ImVec4(0.10f, 0.10f, 0.11f, 1.00f);
+    colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.25f, 0.25f, 0.28f, 1.00f);
+    colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.34f, 0.34f, 0.38f, 1.00f);
+    colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.42f, 0.42f, 0.47f, 1.00f);
+    colors[ImGuiCol_CheckMark] = accent;
+    colors[ImGuiCol_SliderGrab] = ImVec4(0.85f, 0.53f, 0.15f, 1.00f);
+    colors[ImGuiCol_SliderGrabActive] = accent;
+    colors[ImGuiCol_Button] = ImVec4(0.205f, 0.205f, 0.235f, 1.00f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.29f, 0.29f, 0.33f, 1.00f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.97f, 0.60f, 0.16f, 0.85f);
+    colors[ImGuiCol_Header] = ImVec4(0.195f, 0.195f, 0.225f, 1.00f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.28f, 0.28f, 0.32f, 1.00f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.36f, 0.36f, 0.41f, 1.00f);
+    colors[ImGuiCol_Separator] = ImVec4(0.22f, 0.22f, 0.26f, 1.00f);
+    colors[ImGuiCol_SeparatorHovered] = ImVec4(0.97f, 0.60f, 0.16f, 0.78f);
+    colors[ImGuiCol_SeparatorActive] = ImVec4(0.97f, 0.60f, 0.16f, 1.00f);
+    colors[ImGuiCol_ResizeGrip] = ImVec4(0.25f, 0.25f, 0.29f, 0.40f);
+    colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.97f, 0.60f, 0.16f, 0.67f);
+    colors[ImGuiCol_ResizeGripActive] = ImVec4(0.97f, 0.60f, 0.16f, 0.95f);
+    colors[ImGuiCol_Tab] = ImVec4(0.135f, 0.135f, 0.150f, 1.00f);
+    colors[ImGuiCol_TabHovered] = ImVec4(0.26f, 0.26f, 0.30f, 1.00f);
+    colors[ImGuiCol_TabActive] = ImVec4(0.205f, 0.205f, 0.235f, 1.00f);
+    colors[ImGuiCol_TabUnfocused] = ImVec4(0.115f, 0.115f, 0.128f, 1.00f);
+    colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.155f, 0.155f, 0.175f, 1.00f);
+    colors[ImGuiCol_DockingPreview] = ImVec4(0.97f, 0.60f, 0.16f, 0.70f);
+    colors[ImGuiCol_DockingEmptyBg] = ImVec4(0.08f, 0.08f, 0.09f, 1.00f);
+    colors[ImGuiCol_TextSelectedBg] = ImVec4(0.97f, 0.60f, 0.16f, 0.25f);
+    colors[ImGuiCol_DragDropTarget] = accent;
+    colors[ImGuiCol_NavHighlight] = accent;
+    colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.55f);
 
     // Шрифты с кириллицей: базовый + средний/крупный для runtime UI
     {
@@ -1186,6 +1221,7 @@ void GUI::RenderInspector(EditorContext& ctx) {
             selected->sprite.type = static_cast<SpriteType>(type);
         }
         ImGui::ColorEdit3("Color", &selected->sprite.color.r);
+        ImGui::DragInt("Sorting Order", &selected->sprite.sortingOrder, 1.0f);
 
         if (selected->id != m_InspectorEntityId) {
             m_InspectorEntityId = selected->id;
@@ -2164,19 +2200,21 @@ void GUI::RenderProjectDialogs(EditorContext& ctx) {
 void GUI::RenderFolderPicker(EditorContext& ctx) {
     if (m_FolderPickerTarget == 0) return;
 
-    const char* title = m_FolderPickerPickFile ? "Select File to Import" : "Select Folder";
-    ImGui::OpenPopup(title);
-    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(420, 420), ImGuiCond_Appearing);
-
-    if (ImGui::BeginPopupModal(title, nullptr, 0)) {
-        m_PopupOpen = true;
+    // Обычное плавающее окно (не модалка): вложенные модалки ImGui ломаются,
+    // а такое окно работает поверх любого диалога и не блокирует ввод при осечке
+    const char* title = m_FolderPickerPickFile ? "Select File to Import###astraFolderPicker"
+                                               : "Select Folder###astraFolderPicker";
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + (vp->Size.x - 480) * 0.5f,
+                                   vp->Pos.y + (vp->Size.y - 540) * 0.5f), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(480, 540), ImGuiCond_Appearing);
+    bool open = true;
+    if (ImGui::Begin(title, &open, ImGuiWindowFlags_NoDocking)) {
+        ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindowRead());
         std::error_code ec;
         if (!fs::is_directory(m_FolderPickerPath, ec))
             m_FolderPickerPath = GuiHomeDir().string();
 
-        // Ручной ввод пути + переход
         char pathBuf[1024];
         snprintf(pathBuf, sizeof(pathBuf), "%s", m_FolderPickerPath.c_str());
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 90.0f);
@@ -2192,10 +2230,11 @@ void GUI::RenderFolderPicker(EditorContext& ctx) {
             if (p.has_parent_path()) m_FolderPickerPath = p.parent_path().string();
         }
 
+        ImGui::SeparatorText(m_FolderPickerPickFile ? "Файлы (клик — импортировать)" : "Папки");
         ImGui::BeginChild("FolderList");
         std::vector<fs::path> subDirs, subFiles;
-        for (fs::directory_iterator it(m_FolderPickerPath, fs::directory_options::skip_permission_denied, ec), end;
-             it != end; ++it) {
+        for (fs::directory_iterator it(m_FolderPickerPath, fs::directory_options::skip_permission_denied, ec), endIt;
+             it != endIt; ++it) {
             if (it->is_directory()) subDirs.push_back(it->path());
             else subFiles.push_back(it->path());
         }
@@ -2204,28 +2243,28 @@ void GUI::RenderFolderPicker(EditorContext& ctx) {
         };
         std::sort(subDirs.begin(), subDirs.end(), byName);
         std::sort(subFiles.begin(), subFiles.end(), byName);
-        for (const auto& p : subDirs) {
-            std::string label = p.filename().string() + "/";
+        for (const auto& dp : subDirs) {
+            std::string label = dp.filename().string() + "/";
             if (ImGui::Selectable(label.c_str(), false, ImGuiTreeNodeFlags_SpanAvailWidth))
-                m_FolderPickerPath = p.string();
+                m_FolderPickerPath = dp.string();
         }
         if (m_FolderPickerPickFile) {
-            for (const auto& p : subFiles) {
-                std::string label = std::string(AssetIcon(ExtLower(p))) + " " + p.filename().string();
+            for (const auto& fp : subFiles) {
+                std::string label = std::string(AssetIcon(ExtLower(fp))) + " " + fp.filename().string();
                 if (ImGui::Selectable(label.c_str(), false, ImGuiTreeNodeFlags_SpanAvailWidth)) {
-                    ImportFileToAssets(ctx, p.string());
+                    ImportFileToAssets(ctx, fp.string());
                     m_FolderPickerTarget = 0;
                     m_FolderPickerPickFile = false;
-                    ImGui::CloseCurrentPopup();
                 }
             }
         }
-        if (ec) ImGui::TextDisabled("(unreadable folder)");
+        if (ec) ImGui::TextDisabled("(нечитаемая папка)");
+        else if (subDirs.empty() && subFiles.empty()) ImGui::TextDisabled("(пусто)");
         ImGui::EndChild();
 
         ImGui::Separator();
         ImGui::TextDisabled("%s", m_FolderPickerPath.c_str());
-        if (!m_FolderPickerPickFile) {
+        if (!m_FolderPickerPickFile && m_FolderPickerTarget != 3) {
             if (ImGui::Button("Use This Folder", ImVec2(160, 0))) {
                 if (m_FolderPickerTarget == 4) {
                     snprintf(m_BuildDirBuf, sizeof(m_BuildDirBuf), "%s", m_FolderPickerPath.c_str());
@@ -2235,22 +2274,24 @@ void GUI::RenderFolderPicker(EditorContext& ctx) {
                     snprintf(dest, cap, "%s", m_FolderPickerPath.c_str());
                 }
                 m_FolderPickerTarget = 0;
-                ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
         }
         if (ImGui::Button("Cancel", ImVec2(120, 0))) {
             m_FolderPickerTarget = 0;
             m_FolderPickerPickFile = false;
-            ImGui::CloseCurrentPopup();
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+            ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             m_FolderPickerTarget = 0;
             m_FolderPickerPickFile = false;
-            ImGui::CloseCurrentPopup();
         }
-        ImGui::EndPopup();
+        if (!open) {
+            m_FolderPickerTarget = 0;
+            m_FolderPickerPickFile = false;
+        }
     }
+    ImGui::End();
 }
 
 void GUI::RenderSettings(EditorContext& ctx) {
@@ -2273,6 +2314,25 @@ void GUI::RenderSettings(EditorContext& ctx) {
                 ImGui::SetTooltip("0, -9.81 — как в Unity. По оси Y вверх положительно.");
             if (ImGui::Button("Reset##gravity"))
                 Physics::Gravity = glm::vec2(0.0f, -9.81f) * Physics::PixelsPerMeter;
+            ImGui::SameLine();
+            float ppm = Physics::PixelsPerMeter;
+            if (ImGui::DragFloat("Pixels per meter", &ppm, 1.0f, 1.0f, 10000.0f, "%.0f px/m")) {
+                glm::vec2 g = Physics::Gravity / Physics::PixelsPerMeter;
+                Physics::PixelsPerMeter = ppm;
+                Physics::Gravity = g * ppm;
+            }
+        }
+
+        if (ImGui::CollapsingHeader("Render", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::ColorEdit4("Background color", &AstraPrefs::ClearColor.r);
+            ImGui::Checkbox("Grid in Scene", &AstraPrefs::ShowGrid);
+            ImGui::Checkbox("Colliders in Scene", &AstraPrefs::ShowColliders);
+            ImGui::DragFloat("Grid / move snap, px", &AstraPrefs::GridSize, 1.0f, 5.0f, 500.0f, "%.0f");
+        }
+
+        if (ImGui::CollapsingHeader("Editor", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::DragFloat("Rotation snap, deg", &AstraPrefs::SnapDegrees, 0.5f, 1.0f, 90.0f, "%.1f");
+            ImGui::TextDisabled("Undo/Redo: Ctrl+Z / Ctrl+Shift+Z");
         }
 
         if (ImGui::CollapsingHeader("Time", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -2666,8 +2726,27 @@ static std::string ReadAllBytes(const fs::path& path) {
 
 static const char* kBundleMagic = "ASTRAPKG";
 
+static std::string launcherQuote(const std::string& s) {
+    std::string out = "'";
+    for (char c : s) {
+        if (c == '\'') out += "'\\''";
+        else out += c;
+    }
+    out += "'";
+    return out;
+}
+
+static bool RunShell(const std::string& cmd, std::string& outLog) {
+    char buf[512];
+    FILE* pipe = popen((cmd + " 2>&1").c_str(), "r");
+    if (!pipe) { outLog = "не удалось запустить " + cmd; return false; }
+    while (fgets(buf, sizeof(buf), pipe)) outLog += buf;
+    int rc = pclose(pipe);
+    return WIFEXITED(rc) && WEXITSTATUS(rc) == 0;
+}
+
 bool AstraBuildGame(const std::string& exeSrc, const std::string& scenePath,
-                    const std::string& destDir, bool singleExe, std::string& status) {
+                    const std::string& destDir, int mode, bool copyEngineLib, std::string& status) {
     std::error_code ec;
     fs::path dest(destDir);
     fs::create_directories(dest, ec);
@@ -2723,8 +2802,35 @@ bool AstraBuildGame(const std::string& exeSrc, const std::string& scenePath,
 
     std::string gameJson = "{\n  \"scene\": \"" + scenePath + "\",\n  \"project\": \"astra-game\"\n}\n";
 
-    if (singleExe) {
-        // 2) один файл: exe + приклеенный бандл (assets/, *.so, game.json)
+    auto copyAssetsAndScripts = [&](void) -> bool {
+        std::error_code ec;
+        if (fs::is_directory("assets", ec)) {
+            fs::path assetsOut = dest / "assets";
+            if (fs::exists(assetsOut, ec)) fs::remove_all(assetsOut, ec);
+            std::error_code ec2;
+            for (fs::recursive_directory_iterator it("assets", fs::directory_options::skip_permission_denied, ec2), e;
+                 it != e; ++it) {
+                fs::path rel = fs::relative(it->path(), "assets", ec2);
+                fs::path target = assetsOut / rel;
+                if (it->is_directory()) { fs::create_directories(target, ec2); continue; }
+                fs::copy_file(it->path(), target, fs::copy_options::overwrite_existing, ec2);
+            }
+            std::cout << "[Build] assets -> " << assetsOut.string() << "\n";
+        }
+        fs::create_directories(dest / "build-scripts", ec);
+        bool okc = true;
+        for (const auto& so : soPaths) {
+            std::error_code ec3;
+            fs::copy_file(so, dest / so, fs::copy_options::overwrite_existing, ec3);
+            if (ec3) { std::cerr << "[Build] copy .so: " << ec3.message() << "\n"; okc = false; }
+        }
+        std::ofstream jf(dest / "game.json");
+        jf << gameJson;
+        return okc;
+    };
+
+    if (mode == 1) {
+        // Один exe: бандл приклеивается к бинарнику
         fs::path outExe = dest / (fs::path(scenePath).stem().string());
         fs::copy_file(self, outExe, fs::copy_options::overwrite_existing, ec);
         if (ec) { status = "Копирование бинарника: " + ec.message(); return false; }
@@ -2765,7 +2871,61 @@ bool AstraBuildGame(const std::string& exeSrc, const std::string& scenePath,
         return ok;
     }
 
-    // 2) папка: astra + assets/ + build-scripts/ + game.json
+    // Общие части для режимов 0 и 2: assets/, build-scripts/*.so, game.json в папку
+    bool filesOk = copyAssetsAndScripts();
+    ok = ok && filesOk;
+
+    if (mode == 0) {
+        // Лаунчер как в Godot: крошечный exe, линкованный с libastra_engine.so.
+        // Движок не дублируется — либка кладётся рядом (или берётся по пути сборки).
+        fs::path libDir = self.parent_path();
+        std::string libName = "libastra_engine.so";
+        if (!fs::exists(libDir / libName, ec)) {
+            status = "Не найден " + (libDir / libName).string() + " — соберите движок как библиотеку";
+            std::cerr << "[Build] " << status << "\n";
+            return false;
+        }
+        fs::path srcDir = ASTRA_SRC_DIR;
+        fs::path launcherDir = dest / ".astra-launcher";
+        fs::create_directories(launcherDir, ec);
+        fs::path launcherCpp = launcherDir / "launcher.cpp";
+        {
+            std::ofstream lf(launcherCpp);
+            lf << "// Сгенерировано Astra Build Game\n"
+                  "#include \"core/Application.h\"\n"
+                  "#include <filesystem>\n"
+                  "int main() {\n"
+                  "    std::error_code ec;\n"
+                  "    auto self = std::filesystem::canonical(\"/proc/self/exe\", ec);\n"
+                  "    if (!ec) std::filesystem::current_path(self.parent_path(), ec); // cwd = папка игры\n"
+                  "    AppOptions o; o.player = true; o.scenePath = \"" << scenePath << "\";\n"
+                  "    Application app(o); app.Run(); return 0;\n"
+                  "}\n";
+        }
+        if (copyEngineLib) {
+            fs::copy_file(libDir / libName, dest / libName, fs::copy_options::overwrite_existing, ec);
+            if (ec) { status = "Копирование либки: " + ec.message(); return false; }
+        }
+        fs::path outExe = dest / (fs::path(scenePath).stem().string());
+        std::string rpath = copyEngineLib ? "$ORIGIN" : libDir.string();
+        std::string cmd = std::string("g++ -std=c++17 -O2 ") + SCRIPT_INCLUDES + " -I" +
+                          launcherQuote(srcDir.string()) + " " + launcherQuote(launcherCpp.string()) +
+                          " -L" + launcherQuote(libDir.string()) +
+                          " -lastra_engine -Wl,-rpath,'" + rpath + "' -o " + launcherQuote(outExe.string());
+        std::string log;
+        if (!RunShell(cmd, log)) {
+            status = "Компиляция лаунчера: " + log;
+            std::cerr << "[Build] " << status << "\n";
+            return false;
+        }
+        fs::remove_all(launcherDir, ec);
+        status = "Готово: " + outExe.string() + " — лаунчер к libastra_engine.so" +
+                 (copyEngineLib ? " (либка рядом)" : " (либка: " + libDir.string() + ")");
+        std::cout << "[Build] " << status << "\n";
+        return ok;
+    }
+
+    // mode == 2: папка с полной копией бинарника
     fs::path exeOut = dest / "astra";
     fs::copy_file(self, exeOut, fs::copy_options::overwrite_existing, ec);
     if (ec) { status = "Копирование бинарника: " + ec.message(); return false; }
@@ -2773,38 +2933,13 @@ bool AstraBuildGame(const std::string& exeSrc, const std::string& scenePath,
                     fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec |
                     fs::perms::owner_read | fs::perms::owner_write,
                     fs::perm_options::add, ec);
-    std::cout << "[Build] player: " << exeOut.string() << "\n";
-
-    if (fs::is_directory("assets", ec)) {
-        fs::path assetsOut = dest / "assets";
-        if (fs::exists(assetsOut, ec)) fs::remove_all(assetsOut, ec);
-        std::error_code ec2;
-        for (fs::recursive_directory_iterator it("assets", fs::directory_options::skip_permission_denied, ec2), e;
-             it != e; ++it) {
-            fs::path rel = fs::relative(it->path(), "assets", ec2);
-            fs::path target = assetsOut / rel;
-            if (it->is_directory()) { fs::create_directories(target, ec2); continue; }
-            fs::copy_file(it->path(), target, fs::copy_options::overwrite_existing, ec2);
-        }
-        std::cout << "[Build] assets -> " << assetsOut.string() << "\n";
-    }
-    fs::create_directories(dest / "build-scripts", ec);
-    for (const auto& so : soPaths) {
-        std::error_code ec3;
-        fs::copy_file(so, dest / so, fs::copy_options::overwrite_existing, ec3);
-        if (ec3) { std::cerr << "[Build] copy .so: " << ec3.message() << "\n"; ok = false; }
-    }
-    {
-        std::ofstream jf(dest / "game.json");
-        jf << gameJson;
-    }
     status = "Готово: " + dest.string() + "  (запуск: ./astra --play)";
     std::cout << "[Build] " << status << "\n";
     return ok;
 }
 
 bool GUI::BuildGame(const std::string& destDir, const std::string& scenePath) {
-    return AstraBuildGame("/proc/self/exe", scenePath, destDir, m_BuildSingleExe, m_BuildStatus);
+    return AstraBuildGame("/proc/self/exe", scenePath, destDir, m_BuildMode, m_BuildCopyEngineLib, m_BuildStatus);
 }
 
 std::string AstraBundleExtract() {
@@ -2916,13 +3051,25 @@ void GUI::RenderBuildDialog(EditorContext& ctx) {
             else m_FolderPickerPath = GuiHomeDir().string();
         }
 
-        ImGui::Checkbox("Один исполняемый файл (ассеты внутри бинарника)", &m_BuildSingleExe);
+        const char* buildModes[] = { "Лаунчер + либка движка (рекомендуется)",
+                                     "Один исполняемый файл", "Папка с бинарником astra" };
+        ImGui::Combo("Тип сборки", &m_BuildMode, buildModes, 3);
+        if (m_BuildMode == 0) {
+            ImGui::Checkbox("Копировать libastra_engine.so рядом с игрой", &m_BuildCopyEngineLib);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("С галочкой — игра переносима (либка рядом, rpath=$ORIGIN).\n"
+                                  "Без — либка берётся из папки сборки (rpath абсолютный).");
+        }
         ImGui::Separator();
-        ImGui::TextWrapped(m_BuildSingleExe
-            ? "Получится ОДИН файл-игра: движок + assets + собранные скрипты + game.json внутри. "
-              "При запуске распакуется в папку рядом с собой и откроется как игра; g++ на целевой машине не нужен. ESC — выход."
-            : "В папку копируются: движок (astra), assets/, предкомпилированные .so скриптов из сцены и game.json со стартовой сценой. "
-              "Запуск без g++: ./astra --play");
+        if (m_BuildMode == 0)
+            ImGui::TextWrapped("Как в Godot/UE: игра — крошечный лаунчер, движок подключается как "
+                               "библиотека (не дублируется в каждой сборке). Скрипты предкомпилированы "
+                               "в .so — g++ на целевой машине не нужен.");
+        else if (m_BuildMode == 1)
+            ImGui::TextWrapped("Один файл: движок + assets + .so + game.json приклеены к exe; при первом "
+                               "запуске распакуется в <имя>.bundle/ рядом. ESC — выход.");
+        else
+            ImGui::TextWrapped("Папка: astra + assets/ + build-scripts/*.so + game.json. Запуск: ./astra --play");
         if (!m_BuildStatus.empty()) {
             ImGui::TextWrapped("%s", m_BuildStatus.c_str());
         }

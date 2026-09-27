@@ -57,7 +57,8 @@ Scene 中的导航：右键/中键 — 平移，滚轮 — 向光标处缩放，
 
 - **Transform** — Position/Rotation/Scale。支持 `Parent`：子物体继承父物体的姿态
   （世界矩阵行为与 Unity 一致，包括整条链上的缩放/旋转）。
-- **Sprite** — Type（None/Quad/Circle）、Color、Texture Path、Custom Shader（见 SHADER_API.md）。
+- **Sprite** — Type（None/Quad/Circle）、Color、Texture Path、**Sorting Order**（值越小越早绘制、
+  压在其它物体下面，与 Unity 一致）、Custom Shader（见 SHADER_API.md）。
 - **Animation** — 图集动画：`Cols × Rows`（row 0 = 最上面一行）、FPS、Loop、Play On Awake、
   `Active`（在 Edit 模式下帧也会作为预览播放）。可以使用独立的 Sheet Path，或「Use Sprite」。
   脚本侧接口：`PlayAnimation/StopAnimation/IsAnimating`。
@@ -125,21 +126,31 @@ Entity + UI Element 组件：**Button / Text / Slider / Checkbox / Progress Bar*
 
 ## 10. 引擎设置
 
-**Edit ▸ Settings**：重力（m/s²，Unity 风格的 0,-9.81）、Time Scale（在进入 Play 时生效，
-并且 Stop 之后仍然保留）、Master Volume、Mute、音频系统状态。
+**Edit ▸ Settings**：
+- **Physics** — 重力（m/s²，Unity 风格的 0,-9.81）、Pixels per meter（世界缩放比例）。
+- **Render** — 场景/游戏的背景色、在 Scene 中显示网格与碰撞体、网格/吸附步长（px）。
+- **Editor** — 旋转吸附步长（°）。
+- **Time** — Time Scale（在进入 Play 时生效，Stop 之后仍然保留）。
+- **Audio** — Master Volume、Mute、音频设备状态。
+
+文件浏览器（Browse/Import）是普通窗口：可以同时操作界面的其它部分，按 ESC 关闭。
 
 ## 11. 游戏打包与播放器
 
-**File ▸ Build Game...** — 两种模式：
+**File ▸ Build Game...** — 三种模式（与 Godot/UE 一样，引擎不会在每次打包时被重复复制一份）：
 
-1. **文件夹**：`astra`（可执行文件）+ `assets/` + `build-scripts/*.so`（预编译好的脚本 —
-   目标机器上不需要 g++）+ `game.json`（起始场景）。运行方式：`./astra --play`。
-2. **单个可执行文件**（勾选）：可执行文件后面附加了一个 bundle（内容与上面完全相同）。
-   首次运行会把它解压到自身旁边的 `<名称>.bundle/` 并启动游戏。一个文件 = 一个游戏。
+1. **启动器 + 引擎库（推荐）** — 游戏编译为一个很小的 exe（约 18 KB），链接到
+   `libastra_engine.so`。勾选「把库复制到旁边」选项（rpath `$ORIGIN`）后，文件夹是可移植的；
+   不勾选则库从构建目录里取用。脚本已预编译为 `.so` — 目标机器上不需要 g++。运行方式：直接
+   `./游戏名`（cwd = exe 所在的目录）。
+2. **单个可执行文件** — 可执行文件后面附加了一个 bundle（引擎 + assets + .so + game.json）；
+   首次运行会把它解压到自身旁边的 `<名称>.bundle/`。一个文件 = 一个游戏。
+3. **带 astra 二进制文件的文件夹** — 完整拷贝 `astra` + `assets/` + `build-scripts/` +
+   `game.json`，运行方式 `./astra --play`。
 
-不带 GUI 的 CLI：`./Astra --build assets/scenes/x.scene --out ./game [--folder]`。
-播放器参数：`--play`、`--scene <path>`、`--project <dir>`。在游戏中完整的脚本 API 都可用，
-包括 `LoadScene`（关卡）和 `Log`（输出到控制台）。
+不带 GUI 的 CLI：`./Astra --build assets/scenes/x.scene --out ./game [--single|--folder]`
+（默认是模式 1）。播放器参数：`--play`、`--scene <path>`、`--project <dir>`。在游戏中完整的脚本
+API 都可用，包括 `LoadScene`（关卡）和 `Log`（输出到控制台）。
 
 ## 12. 控制台
 

@@ -1,6 +1,7 @@
 #include "core/Renderer.h"
 #include "core/Camera.h"
 #include "core/SystemShaders.h"
+#include "core/Prefs.h"
 #include "ecs/Entity.h"
 #include "ecs/Physics.h"
 #include "ecs/Transforms.h"
@@ -8,6 +9,7 @@
 #include "utils/Texture.h"
 #include <GLFW/glfw3.h>
 #include <vector>
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <sstream>
@@ -74,7 +76,7 @@ void Renderer::SetupGridBuffers() {
 }
 
 void Renderer::UpdateGrid(Camera* camera) {
-    const float gridSize = 50.0f;
+    const float gridSize = AstraPrefs::GridSize;
     float viewHeight = 1080.0f * camera->GetZoom();
     float viewWidth = viewHeight * camera->GetAspectRatio();
     glm::vec2 pos = camera->GetPosition();
@@ -105,6 +107,7 @@ void Renderer::UpdateGrid(Camera* camera) {
 }
 
 void Renderer::RenderGrid(Camera* camera) {
+    if (!AstraPrefs::ShowGrid) return;
     UpdateGrid(camera);
     m_LineShader->Use();
     m_LineShader->SetMat4("u_ViewProj", camera->GetViewProjectionMatrix());
@@ -318,7 +321,7 @@ void Renderer::BeginScene(Camera* camera, int width, int height) {
     m_ScreenW = width;
     m_ScreenH = height;
     camera->SetAspectRatio(static_cast<float>(width) / static_cast<float>(height));
-    glClearColor(0.15f, 0.15f, 0.15f, 1.0f);
+    glClearColor(AstraPrefs::ClearColor.r, AstraPrefs::ClearColor.g, AstraPrefs::ClearColor.b, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 }
 
@@ -341,7 +344,16 @@ static glm::vec4 AnimationRect(const Entity& entity) {
 }
 
 void Renderer::RenderEntities(const std::vector<Entity>& entities, Camera* camera) {
-    for (const auto& entity : entities) {
+    // Порядок отрисовки: sortingOrder (меньше — раньше), стабильно внутри уровня
+    std::vector<const Entity*> ordered;
+    ordered.reserve(entities.size());
+    for (const auto& e : entities) ordered.push_back(&e);
+    std::stable_sort(ordered.begin(), ordered.end(),
+                     [](const Entity* a, const Entity* b) {
+                         return a->sprite.sortingOrder < b->sprite.sortingOrder;
+                     });
+    for (const Entity* entityPtr : ordered) {
+        const Entity& entity = *entityPtr;
         if (!entity.active) continue;
 
         glm::mat4 model = Transforms::WorldMatrix(entities, entity);
@@ -516,6 +528,7 @@ void Renderer::SetupColliderBuffers() {
 }
 
 void Renderer::RenderColliders(const std::vector<Entity>& entities, Camera* camera) {
+    if (!AstraPrefs::ShowColliders) return;
     for (const auto& entity : entities) {
         if (!entity.active || entity.collider.type == ColliderType::None) continue;
 

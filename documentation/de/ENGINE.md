@@ -57,7 +57,8 @@ Eine Entity = ein Satz fest vorgegebener Komponenten (im Moment so; ein reines E
 
 - **Transform** — Position/Rotation/Scale. Es gibt `Parent`: Kinder übernehmen die Pose des Elternobjekts
   (Weltraum-Matrizen wie in Unity, einschließlich Skalierung/Drehung der Kette).
-- **Sprite** — Type (None/Quad/Circle), Color, Texture Path, Custom Shader (siehe SHADER_API.md).
+- **Sprite** — Type (None/Quad/Circle), Color, Texture Path, **Sorting Order** (ein kleinerer Wert
+  wird früher/unter den anderen gezeichnet, wie in Unity), Custom Shader (siehe SHADER_API.md).
 - **Animation** — Sprite Sheet: `Cols × Rows` (row 0 = oberste Zeile), FPS, Loop, Play On Awake,
   `Active` (im Edit-Modus laufen die Frames als Vorschau). Eigene Sheet Path oder »Use Sprite«.
   Aus Skripten: `PlayAnimation/StopAnimation/IsAnimating`.
@@ -125,21 +126,35 @@ sind sie klickbar; das Skript liest `GameUI::WasClicked(id)` / `GameUI::GetValue
 
 ## 10. Engine-Einstellungen
 
-**Edit ▸ Settings**: Gravitation (m/s², Unity-style 0,-9.81), Time Scale (wird beim Wechsel in Play angewandt,
-überlebt Stop), Master Volume, Mute, Status des Audiosystems.
+**Edit ▸ Settings**:
+- **Physics** — Gravitation (m/s², Unity-style 0,-9.81), Pixels per meter (Maßstab der Welt).
+- **Render** — Hintergrundfarbe von Szene/Spiel, Anzeige von Grid und Kollidern in der Scene,
+  Grid-/Snap-Weite (px).
+- **Editor** — Snap-Weite der Rotation (°).
+- **Time** — Time Scale (wird beim Wechsel in Play angewandt, überlebt Stop).
+- **Audio** — Master Volume, Mute, Status des Geräts.
+
+Die Dateibrowser (Browse/Import) sind gewöhnliche Fenster: Man kann parallel mit dem Rest der
+Oberfläche arbeiten, ESC schließt sie.
 
 ## 11. Spiel bauen und Player
 
-**File ▸ Build Game...** — zwei Modi:
+**File ▸ Build Game...** — drei Modi (wie in Godot/UE, die Engine wird in jedem Build nicht dupliziert):
 
-1. **Ordner**: `astra` (Binary) + `assets/` + `build-scripts/*.so` (vorkompilierte Skripte —
-   g++ auf dem Zielrechner wird NICHT gebraucht) + `game.json` (Startszene). Start: `./astra --play`.
-2. **Eine ausführliche Datei** (Häkchen): an die Binary ist ein Bundle angehängt (genau derselbe Inhalt).
-   Beim ersten Start wird es neben der Datei nach `<name>.bundle/` ausgepackt und das Spiel gestartet. Eine Datei = Spiel.
+1. **Launcher + Engine-Bibliothek (empfohlen)** — das Spiel wird als winzige exe (~18 KB) gebaut,
+   die mit `libastra_engine.so` gelinkt ist. Die Option »Bibliothek daneben kopieren«
+   (rpath `$ORIGIN`) hält den Ordner portabel; ohne sie kommt die Bibliothek aus dem Build-Ordner.
+   Die Skripte sind zu `.so` vorkompiliert — g++ auf dem Zielrechner wird nicht gebraucht.
+   Start: einfach `./spielname` (cwd = Ordner der exe).
+2. **Eine ausführliche Datei** — an die Binary ist ein Bundle angehängt (Engine + assets + .so +
+   game.json); beim ersten Start wird es neben der Datei nach `<name>.bundle/` ausgepackt.
+   Eine Datei = Spiel.
+3. **Ordner mit der astra-Binary** — vollständige Kopie: `astra` + `assets/` + `build-scripts/` +
+   `game.json`, Start mit `./astra --play`.
 
-CLI ohne GUI: `./Astra --build assets/scenes/x.scene --out ./game [--folder]`.
-Player-Flags: `--play`, `--scene <path>`, `--project <dir>`. Im Spiel steht die komplette Skript-API
-zur Verfügung, einschließlich `LoadScene` (Level) und `Log` (schreibt in die Konsole).
+CLI ohne GUI: `./Astra --build assets/scenes/x.scene --out ./game [--single|--folder]`
+(Standard ist Modus 1). Player-Flags: `--play`, `--scene <path>`, `--project <dir>`. Im Spiel steht
+die komplette Skript-API zur Verfügung, einschließlich `LoadScene` (Level) und `Log` (schreibt in die Konsole).
 
 ## 12. Konsole
 
