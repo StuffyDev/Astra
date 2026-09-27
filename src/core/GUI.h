@@ -181,10 +181,14 @@ private:
     char m_BuildDirBuf[512] = "build_release";
     int m_BuildScene = 0;              // индекс в списке сцен; 0 = текущая
     std::vector<std::string> m_BuildSceneList;
+    std::vector<bool> m_BuildSceneIncluded;
+    int m_BuildBoot = 0;
+    char m_BuildProduct[128] = "MyGame";
     std::string m_BuildStatus;
     bool m_BuildRunning = false;
-    int m_BuildMode = 0;            // 0 = лаунчер+либка, 1 = один exe, 2 = папка
+    int m_BuildMode = 0;            // UI: 0 = лаунчер+либка; 1/2 доступны только из CLI
     bool m_BuildCopyEngineLib = true;
+    bool m_BuildEncrypt = true;
 
     // Шрифты для runtime UI
     ImFont* m_FontMedium = nullptr;
@@ -233,6 +237,9 @@ private:
 
     // Билд игры
     void RenderBuildDialog(EditorContext& ctx);
+    void LoadUserSettings();
+    void SaveUserSettings();
+    bool m_SettingsDirty = false;
     bool BuildGame(const std::string& destDir, const std::string& scenePath);
 
     // Буфер обмена для сущностей (Ctrl+C / Ctrl+V в редакторе)
@@ -245,7 +252,8 @@ private:
 // движок не дублируется, либка кладётся рядом или берётся по пути сборки);
 // mode 1 — один exe с приклеенным бандлом; mode 2 — папка (astra + assets + build-scripts + game.json).
 bool AstraBuildGame(const std::string& exeSrc, const std::string& scenePath,
-                    const std::string& destDir, int mode, bool copyEngineLib, std::string& status);
+                    const std::string& destDir, int mode, bool copyEngineLib, bool encrypt,
+                    std::string& status);
 
 // Ищет бандл в конце собственного исполняемого файла; если есть — распаковывает
 // в каталог рядом с exe и возвращает его (иначе пустую строку)

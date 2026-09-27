@@ -4,6 +4,7 @@
 #include "ecs/Transforms.h"
 #include "ecs/Physics.h"
 #include "utils/ConsoleLog.h"
+#include "core/SceneSerializer.h"
 #include <dlfcn.h>
 #include <cstdio>
 #include <cstdlib>
@@ -44,6 +45,8 @@ float g_Delta = 0.0f, g_UnscaledDelta = 0.0f, g_Elapsed = 0.0f, g_TimeScale = 1.
 float g_DefaultTimeScale = 1.0f;
 std::string g_PendingScene;   // запрос LoadScene из скрипта, обрабатывает Application
 float g_ShakeAmp = 0.0f, g_ShakeLeft = 0.0f; // тряска камеры
+bool g_QuitRequested = false;
+int g_CaptureMouse = 0; // 0 = не меняли, 1 = захват, 2 = отпустить
 
 Script* CreateInstance(const std::string& path, uint32_t ownerId) {
     auto it = g_Libs.find(path);
@@ -256,6 +259,10 @@ glm::vec2 Scripting::ShakeOffset() {
     return glm::vec2(a, b) * k;
 }
 
+bool Scripting::QuitRequested() { return g_QuitRequested; }
+void Scripting::ClearQuit() { g_QuitRequested = false; }
+int Scripting::CaptureMouseState() { int s = g_CaptureMouse; g_CaptureMouse = 0; return s; }
+
 bool Scripting::ConsumeSceneChange(std::string& outPath) {
     if (g_PendingScene.empty()) return false;
     outPath = g_PendingScene;
@@ -296,6 +303,20 @@ void Script::SetVar(const char* name, float value) {
 
 void LoadScene(const std::string& scenePath) {
     g_PendingScene = scenePath;
+}
+
+void QuitGame() { g_QuitRequested = true; }
+void CaptureMouse(bool on) { g_CaptureMouse = on ? 1 : 2; }
+bool IsMouseCaptured() { return g_CaptureMouse == 1; }
+
+// Спавн инстанса префаба в мировой точке; возвращает id корня (0 — ошибка)
+uint32_t InstantiatePrefab(const std::string& prefabPath, const glm::vec2& worldPos) {
+    if (!g_Scene) return 0;
+    std::vector<Entity> protos;
+    if (!SceneSerializer::LoadEntities(prefabPath, protos) || protos.empty()) return 0;
+    int idx = g_Scene->InstantiateProtos(protos, worldPos - protos[0].transform.position);
+    if (idx < 0) return 0;
+    return g_Scene->GetEntities()[static_cast<size_t>(idx)].id;
 }
 
 void ShakeCamera(float amplitude, float duration) {

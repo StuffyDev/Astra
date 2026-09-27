@@ -99,6 +99,13 @@ EmitParticles(Owner(), 30);
 
 // Тряска game-камеры (game-feel): амплитуда в мировых единицах, длительность в секундах
 ShakeCamera(15.0f, 0.3f);
+
+// Выход из игры: в плеере закрывает окно, в редакторе — останавливает Play
+QuitGame();                       // кнопка Exit: GameUI::WasClicked(exitId) -> QuitGame()
+// Захват мыши (шутеры/стратегии): системный курсор скрывается, события остаются
+CaptureMouse(true); if (IsMouseCaptured()) { ... }
+// Спавн префаба (пули, враги): возвращает id корня инстанса (0 — ошибка)
+uint32_t bullet = InstantiatePrefab("assets/prefabs/bullet.prefab", WorldPosition());
 ```
 
 ## 4. Доступ к сцене

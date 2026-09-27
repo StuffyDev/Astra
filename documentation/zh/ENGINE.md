@@ -160,28 +160,37 @@ Entity + UI Element 组件：**Button / Text / Slider / Checkbox / Progress Bar*
 - **Audio** — Master Volume、Mute、音频设备状态。
 
 文件浏览器（Browse/Import）是普通窗口：可以同时操作界面的其它部分，按 ESC 关闭。
+所有设置都会保存到 `~/.astra/config.ini`，并在启动时恢复（主题、背景、网格、吸附、px/米、音量、
+time scale）。界面是柔和的圆角风格，分两套主题：暗色「Astra Slate」与亮色「Astra Paper」。
+文件图标（文件夹/图片/脚本/着色器/场景/预设/音频）全部以矢量方式画在引擎代码里 — 不使用任何第三方资源。
 
 ## 11. 游戏打包与播放器
 
-**File ▸ Build Game...** — 三种模式（与 Godot/UE 一样，引擎不会在每次打包时被重复复制一份）：
+**File ▸ Build Settings...**（**Ctrl+Shift+B**）— 一个 Unity 风格的可停靠窗口：
 
-1. **启动器 + 引擎库（推荐）** — 游戏编译为一个很小的 exe（约 18 KB），链接到
-   `libastra_engine.so`。勾选「把库复制到旁边」选项（rpath `$ORIGIN`）后，文件夹是可移植的；
-   不勾选则库从构建目录里取用。脚本已预编译为 `.so` — 目标机器上不需要 g++。运行方式：直接
-   `./游戏名`（cwd = exe 所在的目录）。
-2. **单个可执行文件** — 可执行文件后面附加了一个 bundle（引擎 + assets + .so + game.json）；
-   首次运行会把它解压到自身旁边的 `<名称>.bundle/`。一个文件 = 一个游戏。
-3. **带 astra 二进制文件的文件夹** — 完整拷贝 `astra` + `assets/` + `build-scripts/` +
-   `game.json`，运行方式 `./astra --play`。
+- **Product name** — 游戏 exe 的名字；
+- **Scenes Included** — 项目里的所有场景：复选框决定哪些场景进入构建，单选按钮指定启动场景
+  （打包后的游戏就从它开始）；
+- 输出 **Folder**（以及 Browse...）— 构建结果放到哪里；
+- **Encrypt used assets** — 对构建带走的资源做 `AENC` 加密；
+- **Copy engine library** — 把 `libastra_engine.so` 复制到 exe 旁边。
 
-不带 GUI 的 CLI：`./Astra --build assets/scenes/x.scene --out ./game [--single|--folder]`
-（默认是模式 1）。播放器参数：`--play`、`--scene <path>`、`--project <dir>`。在游戏中完整的脚本
-API 都可用，包括 `LoadScene`（关卡）和 `Log`（输出到控制台）。
+**Build** 只产出一种发布形式：一个很小的启动器（约 18 KB），链接到 `libastra_engine.so`，里面只有场景
+真正用到的资源（已加密）以及预编译成 `.so` 的脚本 — 目标机器上不需要 g++。勾选 Copy engine library 后，
+库就放在 exe 旁边，配合 rpath `$ORIGIN` 整个文件夹可随身携带；不勾选则库从构建目录里取用。运行方式：
+直接 `./游戏名`（cwd = exe 所在的目录）。
+
+单个可执行文件与「文件夹」两种模式现在只在 CLI 里提供：`./Astra --build assets/scenes/x.scene
+--out ./game [--single|--folder]` —— `--single` 会在可执行文件后面附加一个 bundle（引擎 + assets +
+.so + game.json），首次运行时解压到自身旁边的 `<名称>.bundle/`（一个文件 = 一个游戏）；`--folder`
+是完整拷贝 `astra` + `assets/` + `build-scripts/` + `game.json`，运行方式 `./astra --play`。
+播放器参数：`--play`、`--scene <path>`、`--project <dir>`。在游戏中完整的脚本 API 都可用，
+包括 `LoadScene`（关卡）和 `Log`（输出到控制台）。
 
 **只打包所需 + 加密**：进入构建的并不是整个 `assets/`，而是场景真正用到的文件（纹理/着色器/音频/
-Tilemap 与粒子的图集 + 递归收集的预设）。它们全部会被加密（`AENC`：splitmix64 生成的 XOR 密钥流），
-引擎读取时透明解密 — 游戏目录里不存在原始的纹理/场景/音频。脚本的 `.so` 不加密（由 dlopen 加载）。
-这是「防好奇眼睛」的混淆，不是真正防破解的加密。
+Tilemap 与粒子的图集 + 递归收集的预设）。勾选 **Encrypt used assets** 后它们全部会被加密（`AENC`：
+splitmix64 生成的 XOR 密钥流），引擎读取时透明解密 — 游戏目录里不存在原始的纹理/场景/音频。脚本的
+`.so` 不加密（由 dlopen 加载）。这是「防好奇眼睛」的混淆，不是真正防破解的加密。
 
 ## 12. 控制台
 

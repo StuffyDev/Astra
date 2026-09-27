@@ -65,6 +65,13 @@ void Log(const std::string& message);
 bool DestroyEntity(uint32_t id);
 // Тряска камеры (game-feel): амплитуда в мировых единицах, длительность в секундах
 void ShakeCamera(float amplitude, float duration);
+// Выход из игры: плеер закрывает окно, редактор останавливает Play
+void QuitGame();
+// Захват мыши (шутеры/ RTS): курсор системы скрывается, события мыши остаются
+void CaptureMouse(bool on);
+bool IsMouseCaptured();
+// Спавн префаба в мировой точке; возвращает id корня (0 — ошибка)
+uint32_t InstantiatePrefab(const std::string& prefabPath, const glm::vec2& worldPos);
 // Переключение сцены во время Play/игры: движок загрузит файл и пересоздаст скрипты
 void LoadScene(const std::string& scenePath);
 

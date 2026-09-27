@@ -91,6 +91,96 @@ static void DiscoverScriptVars(const std::string& path,
     }
 }
 
+// ===== Системные векторные иконки (зашиты в код, без ассетов) =====
+enum SysIcon { SysIcon_File, SysIcon_Folder, SysIcon_Image, SysIcon_Script,
+               SysIcon_Shader, SysIcon_Scene, SysIcon_Prefab, SysIcon_Audio };
+
+static SysIcon IconForExt(const std::string& ext, bool isDir) {
+    if (isDir) return SysIcon_Folder;
+    if (IsImageExt(ext)) return SysIcon_Image;
+    if (ext == ".cpp" || ext == ".h") return SysIcon_Script;
+    if (ext == ".vert" || ext == ".frag") return SysIcon_Shader;
+    if (ext == ".scene") return SysIcon_Scene;
+    if (ext == ".prefab") return SysIcon_Prefab;
+    if (IsAudioExt(ext)) return SysIcon_Audio;
+    return SysIcon_File;
+}
+
+static void DrawSysIcon(ImDrawList* dl, ImVec2 c, float s, SysIcon kind) {
+    const float h = s * 0.5f;
+    auto col = [](int r, int g, int b, int a = 255) { return IM_COL32(r, g, b, a); };
+    ImVec2 a(c.x - h, c.y - h), b(c.x + h, c.y + h);
+    switch (kind) {
+        case SysIcon_Folder: {
+            dl->AddRectFilled(ImVec2(a.x, a.y + s * 0.18f), b, col(224, 164, 64), 3.0f);
+            dl->AddRectFilled(ImVec2(a.x, a.y + s * 0.06f), ImVec2(c.x + s * 0.1f, a.y + s * 0.28f),
+                              col(224, 164, 64), 2.0f);
+            dl->AddRect(ImVec2(a.x, a.y + s * 0.18f), b, col(140, 96, 24), 3.0f);
+            dl->AddLine(ImVec2(a.x + 2, c.y), ImVec2(b.x - 2, c.y), col(255, 214, 140), 1.0f);
+        } break;
+        case SysIcon_Image: {
+            dl->AddRectFilled(a, b, col(235, 235, 240), 3.0f);
+            dl->AddRect(a, b, col(120, 120, 135), 3.0f);
+            dl->AddCircleFilled(ImVec2(c.x - s * 0.25f, c.y - s * 0.22f), s * 0.12f, col(240, 200, 80));
+            const ImVec2 tri[3] = { ImVec2(a.x + 2, b.y - 2), ImVec2(c.x + s * 0.1f, c.y + s * 0.05f),
+                                    ImVec2(b.x - 2, b.y - 2) };
+            dl->AddConvexPolyFilled(tri, 3, col(90, 170, 110));
+        } break;
+        case SysIcon_Script: {
+            dl->AddRectFilled(a, b, col(235, 235, 240), 3.0f);
+            dl->AddRect(a, b, col(120, 120, 135), 3.0f);
+            ImU32 ink = col(70, 130, 210);
+            dl->AddLine(ImVec2(c.x - s * 0.12f, c.y - s * 0.28f), ImVec2(c.x - s * 0.34f, c.y), ink, 2.0f);
+            dl->AddLine(ImVec2(c.x - s * 0.34f, c.y), ImVec2(c.x - s * 0.12f, c.y + s * 0.28f), ink, 2.0f);
+            dl->AddLine(ImVec2(c.x + s * 0.12f, c.y - s * 0.28f), ImVec2(c.x + s * 0.34f, c.y), ink, 2.0f);
+            dl->AddLine(ImVec2(c.x + s * 0.34f, c.y), ImVec2(c.x + s * 0.12f, c.y + s * 0.28f), ink, 2.0f);
+        } break;
+        case SysIcon_Shader: {
+            dl->AddRectFilled(a, b, col(235, 235, 240), 3.0f);
+            dl->AddRect(a, b, col(120, 120, 135), 3.0f);
+            dl->PathArcTo(ImVec2(c.x, c.y + s * 0.15f), s * 0.32f, 3.14159f, 0.0f, 16);
+            dl->PathFillConvex(col(150, 95, 205));
+            dl->AddCircle(ImVec2(c.x, c.y + s * 0.15f), s * 0.32f, col(90, 50, 140), 16, 1.0f);
+            dl->AddLine(ImVec2(c.x - s * 0.32f, c.y + s * 0.15f), ImVec2(c.x + s * 0.32f, c.y + s * 0.15f),
+                        col(90, 50, 140), 1.0f);
+        } break;
+        case SysIcon_Scene: {
+            const ImVec2 top[4] = { ImVec2(c.x, a.y), b, ImVec2(c.x, c.y), a };
+            dl->AddConvexPolyFilled(top, 4, col(90, 180, 190));
+            const ImVec2 left[4] = { a, ImVec2(c.x, c.y), ImVec2(c.x, b.y), ImVec2(a.x, c.y + h * 0.5f) };
+            dl->AddConvexPolyFilled(left, 4, col(50, 130, 140));
+            const ImVec2 right[4] = { ImVec2(c.x, c.y), ImVec2(b.x, c.y + h * 0.5f), ImVec2(c.x, b.y), ImVec2(c.x, c.y) };
+            dl->AddConvexPolyFilled(right, 4, col(70, 155, 165));
+            dl->AddPolyline(&top[0], 4, col(30, 90, 100), ImDrawFlags_Closed, 1.0f);
+            dl->AddLine(ImVec2(c.x, c.y), ImVec2(c.x, b.y), col(30, 90, 100), 1.0f);
+        } break;
+        case SysIcon_Prefab: {
+            const ImVec2 dia[4] = { ImVec2(c.x, a.y), ImVec2(b.x, c.y), ImVec2(c.x, b.y), ImVec2(a.x, c.y) };
+            dl->AddConvexPolyFilled(dia, 4, col(120, 100, 220));
+            dl->AddPolyline(dia, 4, col(60, 45, 140), ImDrawFlags_Closed, 1.0f);
+            dl->AddLine(ImVec2(c.x - s * 0.14f, c.y), ImVec2(c.x + s * 0.14f, c.y), col(255, 255, 255), 2.0f);
+            dl->AddLine(ImVec2(c.x, c.y - s * 0.14f), ImVec2(c.x, c.y + s * 0.14f), col(255, 255, 255), 2.0f);
+        } break;
+        case SysIcon_Audio: {
+            dl->AddRectFilled(ImVec2(a.x + s * 0.12f, c.y - s * 0.12f), ImVec2(a.x + s * 0.3f, c.y + s * 0.12f),
+                              col(70, 70, 85));
+            const ImVec2 tri[3] = { ImVec2(a.x + s * 0.3f, c.y - s * 0.12f), ImVec2(a.x + s * 0.5f, c.y - s * 0.3f),
+                                    ImVec2(a.x + s * 0.5f, c.y + s * 0.3f) };
+            dl->AddConvexPolyFilled(tri, 3, col(70, 70, 85));
+            dl->PathArcTo(ImVec2(a.x + s * 0.5f, c.y), s * 0.28f, -0.9f, 0.9f, 10);
+            dl->PathStroke(col(225, 110, 110), 0, 2.0f);
+            dl->PathArcTo(ImVec2(a.x + s * 0.5f, c.y), s * 0.45f, -0.8f, 0.8f, 10);
+            dl->PathStroke(col(225, 110, 110), 0, 2.0f);
+        } break;
+        default: {
+            dl->AddRectFilled(ImVec2(a.x + s * 0.1f, a.y), ImVec2(b.x - s * 0.25f, b.y), col(235, 235, 240), 2.0f);
+            dl->AddRect(ImVec2(a.x + s * 0.1f, a.y), ImVec2(b.x - s * 0.25f, b.y), col(120, 120, 135), 2.0f);
+            dl->AddTriangleFilled(ImVec2(b.x - s * 0.25f, c.y), ImVec2(b.x - s * 0.25f, b.y),
+                                  ImVec2(b.x - s * 0.05f, b.y - s * 0.25f), col(200, 200, 210));
+        }
+    }
+}
+
 static const char* AssetIcon(const std::string& ext) {
     if (IsImageExt(ext)) return "[img]";
     if (ext == ".vert" || ext == ".frag") return "[shd]";
@@ -238,108 +328,174 @@ GUI::GUI(GLFWwindow* window) : m_Window(window) {
 
 GUI::~GUI() { Shutdown(); }
 
+static fs::path AstraConfigPath() {
+    return GuiHomeDir() / ".astra" / "config.ini";
+}
+
+void GUI::LoadUserSettings() {
+    std::ifstream f(AstraConfigPath());
+    if (!f.is_open()) return;
+    std::string line;
+    while (std::getline(f, line)) {
+        size_t eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        std::string k = line.substr(0, eq), v = line.substr(eq + 1);
+        auto num = [&]() { return std::atof(v.c_str()); };
+        if (k == "light_theme") AstraPrefs::LightTheme = num() != 0;
+        else if (k == "clear") sscanf(v.c_str(), "%f %f %f", &AstraPrefs::ClearColor.r, &AstraPrefs::ClearColor.g, &AstraPrefs::ClearColor.b);
+        else if (k == "show_grid") AstraPrefs::ShowGrid = num() != 0;
+        else if (k == "show_colliders") AstraPrefs::ShowColliders = num() != 0;
+        else if (k == "grid_size") AstraPrefs::GridSize = (float)num();
+        else if (k == "snap_deg") AstraPrefs::SnapDegrees = (float)num();
+        else if (k == "gravity") sscanf(v.c_str(), "%f %f", &Physics::Gravity.x, &Physics::Gravity.y);
+        else if (k == "ppm") Physics::PixelsPerMeter = std::max(1.0f, (float)num());
+        else if (k == "master_volume") Audio::SetMasterVolume((float)num());
+        else if (k == "muted") Audio::SetMuted(num() != 0);
+        else if (k == "time_scale") Scripting::SetDefaultTimeScale((float)num());
+    }
+}
+
+void GUI::SaveUserSettings() {
+    std::error_code ec;
+    fs::path cfg = AstraConfigPath();
+    fs::create_directories(cfg.parent_path(), ec);
+    std::ofstream f(cfg);
+    if (!f.is_open()) return;
+    f << "light_theme=" << (AstraPrefs::LightTheme ? 1 : 0) << "\n"
+      << "clear=" << AstraPrefs::ClearColor.r << " " << AstraPrefs::ClearColor.g << " " << AstraPrefs::ClearColor.b << "\n"
+      << "show_grid=" << (AstraPrefs::ShowGrid ? 1 : 0) << "\n"
+      << "show_colliders=" << (AstraPrefs::ShowColliders ? 1 : 0) << "\n"
+      << "grid_size=" << AstraPrefs::GridSize << "\n"
+      << "snap_deg=" << AstraPrefs::SnapDegrees << "\n"
+      << "ppm=" << Physics::PixelsPerMeter << "\n"
+      << "gravity=" << Physics::Gravity.x << " " << Physics::Gravity.y << "\n"
+      << "master_volume=" << Audio::MasterVolume() << "\n"
+      << "muted=" << (Audio::IsMuted() ? 1 : 0) << "\n"
+      << "time_scale=" << Scripting::DefaultTimeScale() << "\n";
+}
+
 void GUI::ApplyTheme() {
     ImGuiStyle& style = ImGui::GetStyle();
     const bool light = AstraPrefs::LightTheme;
-    ImGui::StyleColorsDark();
-    if (light) ImGui::StyleColorsLight();
-// Тема "Astra Slate": тёмный сине-серый, оранжевый акцент, мягкие скругления
-style.WindowRounding = 5.0f;
-style.ChildRounding = 4.0f;
-style.FrameRounding = 4.0f;
-style.GrabRounding = 3.0f;
-style.TabRounding = 4.0f;
-style.PopupRounding = 4.0f;
-style.ScrollbarRounding = 4.0f;
-style.WindowBorderSize = 1.0f;
-style.FrameBorderSize = 0.0f;
-style.WindowPadding = ImVec2(10.0f, 10.0f);
-style.FramePadding = ImVec2(8.0f, 4.0f);
-style.ItemSpacing = ImVec2(8.0f, 5.0f);
-style.ItemInnerSpacing = ImVec2(5.0f, 3.0f);
-style.ScrollbarSize = 13.0f;
-style.GrabMinSize = 14.0f;
-style.WindowTitleAlign = ImVec2(0.0f, 0.5f);
+    if (light) ImGui::StyleColorsLight(); else ImGui::StyleColorsDark();
 
+    // Мягкий «macOS»: скругления, воздух, почти без рамок
+    style.WindowRounding = 8.0f;
+    style.ChildRounding = 6.0f;
+    style.FrameRounding = 6.0f;
+    style.GrabRounding = 6.0f;
+    style.TabRounding = 7.0f;
+    style.PopupRounding = 8.0f;
+    style.ScrollbarRounding = 7.0f;
+    style.WindowBorderSize = 0.0f;
+    style.ChildBorderSize = 0.0f;
+    style.PopupBorderSize = 1.0f;
+    style.FrameBorderSize = 0.0f;
+    style.WindowPadding = ImVec2(12.0f, 12.0f);
+    style.FramePadding = ImVec2(9.0f, 5.0f);
+    style.ItemSpacing = ImVec2(9.0f, 6.0f);
+    style.ItemInnerSpacing = ImVec2(6.0f, 4.0f);
+    style.ScrollbarSize = 12.0f;
+    style.GrabMinSize = 14.0f;
+    style.WindowTitleAlign = ImVec2(0.0f, 0.5f);
 
-const ImVec4 accent = ImVec4(0.97f, 0.60f, 0.16f, 1.00f);
-ImVec4* colors = style.Colors;
+    const ImVec4 accent = light ? ImVec4(0.90f, 0.48f, 0.10f, 1.00f)
+                                : ImVec4(0.97f, 0.60f, 0.16f, 1.00f);
+    ImVec4* c = style.Colors;
 
     if (light) {
-        // Светлая "Astra Paper": мягкий серый фон, тот же оранжевый акцент
-        colors[ImGuiCol_Text] = ImVec4(0.10f, 0.10f, 0.12f, 1.00f);
-        colors[ImGuiCol_TextDisabled] = ImVec4(0.45f, 0.45f, 0.50f, 1.00f);
-        colors[ImGuiCol_WindowBg] = ImVec4(0.93f, 0.93f, 0.95f, 1.00f);
-        colors[ImGuiCol_ChildBg] = ImVec4(0.91f, 0.91f, 0.93f, 1.00f);
-        colors[ImGuiCol_PopupBg] = ImVec4(0.97f, 0.97f, 0.98f, 0.98f);
-        colors[ImGuiCol_Border] = ImVec4(0.72f, 0.72f, 0.76f, 0.70f);
-        colors[ImGuiCol_FrameBg] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
-        colors[ImGuiCol_FrameBgHovered] = ImVec4(0.88f, 0.88f, 0.92f, 1.00f);
-        colors[ImGuiCol_FrameBgActive] = ImVec4(0.82f, 0.82f, 0.88f, 1.00f);
-        colors[ImGuiCol_TitleBg] = ImVec4(0.86f, 0.86f, 0.89f, 1.00f);
-        colors[ImGuiCol_TitleBgActive] = ImVec4(0.93f, 0.93f, 0.96f, 1.00f);
-        colors[ImGuiCol_MenuBarBg] = ImVec4(0.90f, 0.90f, 0.93f, 1.00f);
-        colors[ImGuiCol_ScrollbarBg] = ImVec4(0.90f, 0.90f, 0.93f, 1.00f);
-        colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.75f, 0.75f, 0.80f, 1.00f);
-        colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.65f, 0.65f, 0.72f, 1.00f);
-        colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.55f, 0.55f, 0.64f, 1.00f);
-        colors[ImGuiCol_Button] = ImVec4(0.84f, 0.84f, 0.88f, 1.00f);
-        colors[ImGuiCol_ButtonHovered] = ImVec4(0.76f, 0.76f, 0.83f, 1.00f);
-        colors[ImGuiCol_ButtonActive] = ImVec4(0.97f, 0.60f, 0.16f, 0.75f);
-        colors[ImGuiCol_Header] = ImVec4(0.80f, 0.80f, 0.86f, 1.00f);
-        colors[ImGuiCol_HeaderHovered] = ImVec4(0.70f, 0.70f, 0.80f, 1.00f);
-        colors[ImGuiCol_HeaderActive] = ImVec4(0.97f, 0.60f, 0.16f, 0.75f);
-        colors[ImGuiCol_Tab] = ImVec4(0.85f, 0.85f, 0.89f, 1.00f);
-        colors[ImGuiCol_TabHovered] = ImVec4(0.75f, 0.75f, 0.82f, 1.00f);
-        colors[ImGuiCol_TabActive] = ImVec4(0.97f, 0.97f, 1.00f, 1.00f);
-        colors[ImGuiCol_TextSelectedBg] = ImVec4(0.97f, 0.60f, 0.16f, 0.35f);
-        colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.55f, 0.55f, 0.62f, 0.40f);
-        colors[ImGuiCol_WindowBg] = ImVec4(0.93f, 0.93f, 0.95f, 1.00f);
+        // "Astra Paper": светлый мягкий серый, белые поля ввода, синий-accent у тегов не нужен
+        c[ImGuiCol_Text] = ImVec4(0.12f, 0.12f, 0.14f, 1.00f);
+        c[ImGuiCol_TextDisabled] = ImVec4(0.48f, 0.48f, 0.53f, 1.00f);
+        c[ImGuiCol_WindowBg] = ImVec4(0.925f, 0.925f, 0.945f, 1.00f);
+        c[ImGuiCol_ChildBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+        c[ImGuiCol_PopupBg] = ImVec4(0.97f, 0.97f, 0.985f, 0.99f);
+        c[ImGuiCol_Border] = ImVec4(0.00f, 0.00f, 0.00f, 0.10f);
+        c[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+        c[ImGuiCol_FrameBg] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+        c[ImGuiCol_FrameBgHovered] = ImVec4(0.93f, 0.93f, 0.96f, 1.00f);
+        c[ImGuiCol_FrameBgActive] = ImVec4(0.88f, 0.88f, 0.93f, 1.00f);
+        c[ImGuiCol_TitleBg] = ImVec4(0.88f, 0.88f, 0.91f, 1.00f);
+        c[ImGuiCol_TitleBgActive] = ImVec4(0.93f, 0.93f, 0.96f, 1.00f);
+        c[ImGuiCol_TitleBgCollapsed] = ImVec4(0.86f, 0.86f, 0.89f, 1.00f);
+        c[ImGuiCol_MenuBarBg] = ImVec4(0.90f, 0.90f, 0.93f, 1.00f);
+        c[ImGuiCol_ScrollbarBg] = ImVec4(0.925f, 0.925f, 0.945f, 0.60f);
+        c[ImGuiCol_ScrollbarGrab] = ImVec4(0.70f, 0.70f, 0.75f, 0.70f);
+        c[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.58f, 0.58f, 0.66f, 0.85f);
+        c[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.48f, 0.48f, 0.58f, 1.00f);
+        c[ImGuiCol_CheckMark] = accent;
+        c[ImGuiCol_SliderGrab] = accent;
+        c[ImGuiCol_SliderGrabActive] = ImVec4(0.75f, 0.36f, 0.05f, 1.00f);
+        c[ImGuiCol_Button] = ImVec4(1.00f, 1.00f, 1.00f, 0.85f);
+        c[ImGuiCol_ButtonHovered] = ImVec4(0.86f, 0.86f, 0.92f, 1.00f);
+        c[ImGuiCol_ButtonActive] = accent;
+        c[ImGuiCol_Header] = ImVec4(0.83f, 0.83f, 0.89f, 0.90f);
+        c[ImGuiCol_HeaderHovered] = ImVec4(0.75f, 0.75f, 0.85f, 1.00f);
+        c[ImGuiCol_HeaderActive] = accent;
+        c[ImGuiCol_Separator] = ImVec4(0.00f, 0.00f, 0.00f, 0.10f);
+        c[ImGuiCol_SeparatorHovered] = accent;
+        c[ImGuiCol_SeparatorActive] = accent;
+        c[ImGuiCol_ResizeGrip] = ImVec4(0.00f, 0.00f, 0.00f, 0.08f);
+        c[ImGuiCol_ResizeGripHovered] = accent;
+        c[ImGuiCol_ResizeGripActive] = accent;
+        c[ImGuiCol_Tab] = ImVec4(0.855f, 0.855f, 0.90f, 1.00f);
+        c[ImGuiCol_TabHovered] = ImVec4(0.75f, 0.75f, 0.84f, 1.00f);
+        c[ImGuiCol_TabActive] = ImVec4(0.98f, 0.98f, 1.00f, 1.00f);
+        c[ImGuiCol_TabUnfocused] = ImVec4(0.88f, 0.88f, 0.92f, 1.00f);
+        c[ImGuiCol_TabUnfocusedActive] = ImVec4(0.94f, 0.94f, 0.97f, 1.00f);
+        c[ImGuiCol_DockingPreview] = ImVec4(0.90f, 0.48f, 0.10f, 0.55f);
+        c[ImGuiCol_DockingEmptyBg] = ImVec4(0.88f, 0.88f, 0.91f, 1.00f);
+        c[ImGuiCol_TextSelectedBg] = ImVec4(0.90f, 0.48f, 0.10f, 0.28f);
+        c[ImGuiCol_DragDropTarget] = accent;
+        c[ImGuiCol_NavHighlight] = accent;
+        c[ImGuiCol_ModalWindowDimBg] = ImVec4(0.35f, 0.35f, 0.42f, 0.35f);
+    } else {
+        // "Astra Slate": тёмный сине-серый, оранжевый акцент
+        c[ImGuiCol_Text] = ImVec4(0.88f, 0.88f, 0.90f, 1.00f);
+        c[ImGuiCol_TextDisabled] = ImVec4(0.50f, 0.50f, 0.55f, 1.00f);
+        c[ImGuiCol_WindowBg] = ImVec4(0.126f, 0.126f, 0.137f, 1.00f);
+        c[ImGuiCol_ChildBg] = ImVec4(0.118f, 0.118f, 0.128f, 1.00f);
+        c[ImGuiCol_PopupBg] = ImVec4(0.140f, 0.140f, 0.155f, 0.98f);
+        c[ImGuiCol_Border] = ImVec4(0.25f, 0.25f, 0.29f, 0.45f);
+        c[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+        c[ImGuiCol_FrameBg] = ImVec4(0.165f, 0.165f, 0.185f, 1.00f);
+        c[ImGuiCol_FrameBgHovered] = ImVec4(0.22f, 0.22f, 0.25f, 1.00f);
+        c[ImGuiCol_FrameBgActive] = ImVec4(0.26f, 0.26f, 0.30f, 1.00f);
+        c[ImGuiCol_TitleBg] = ImVec4(0.094f, 0.094f, 0.105f, 1.00f);
+        c[ImGuiCol_TitleBgActive] = ImVec4(0.155f, 0.155f, 0.175f, 1.00f);
+        c[ImGuiCol_TitleBgCollapsed] = ImVec4(0.07f, 0.07f, 0.08f, 1.00f);
+        c[ImGuiCol_MenuBarBg] = ImVec4(0.105f, 0.105f, 0.118f, 1.00f);
+        c[ImGuiCol_ScrollbarBg] = ImVec4(0.10f, 0.10f, 0.11f, 1.00f);
+        c[ImGuiCol_ScrollbarGrab] = ImVec4(0.25f, 0.25f, 0.28f, 1.00f);
+        c[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.34f, 0.34f, 0.38f, 1.00f);
+        c[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.42f, 0.42f, 0.47f, 1.00f);
+        c[ImGuiCol_CheckMark] = accent;
+        c[ImGuiCol_SliderGrab] = ImVec4(0.85f, 0.53f, 0.15f, 1.00f);
+        c[ImGuiCol_SliderGrabActive] = accent;
+        c[ImGuiCol_Button] = ImVec4(0.205f, 0.205f, 0.235f, 1.00f);
+        c[ImGuiCol_ButtonHovered] = ImVec4(0.29f, 0.29f, 0.33f, 1.00f);
+        c[ImGuiCol_ButtonActive] = ImVec4(0.97f, 0.60f, 0.16f, 0.85f);
+        c[ImGuiCol_Header] = ImVec4(0.195f, 0.195f, 0.225f, 1.00f);
+        c[ImGuiCol_HeaderHovered] = ImVec4(0.28f, 0.28f, 0.32f, 1.00f);
+        c[ImGuiCol_HeaderActive] = ImVec4(0.36f, 0.36f, 0.41f, 1.00f);
+        c[ImGuiCol_Separator] = ImVec4(0.22f, 0.22f, 0.26f, 1.00f);
+        c[ImGuiCol_SeparatorHovered] = ImVec4(0.97f, 0.60f, 0.16f, 0.78f);
+        c[ImGuiCol_SeparatorActive] = ImVec4(0.97f, 0.60f, 0.16f, 1.00f);
+        c[ImGuiCol_ResizeGrip] = ImVec4(0.25f, 0.25f, 0.29f, 0.40f);
+        c[ImGuiCol_ResizeGripHovered] = ImVec4(0.97f, 0.60f, 0.16f, 0.67f);
+        c[ImGuiCol_ResizeGripActive] = ImVec4(0.97f, 0.60f, 0.16f, 0.95f);
+        c[ImGuiCol_Tab] = ImVec4(0.135f, 0.135f, 0.150f, 1.00f);
+        c[ImGuiCol_TabHovered] = ImVec4(0.26f, 0.26f, 0.30f, 1.00f);
+        c[ImGuiCol_TabActive] = ImVec4(0.205f, 0.205f, 0.235f, 1.00f);
+        c[ImGuiCol_TabUnfocused] = ImVec4(0.115f, 0.115f, 0.128f, 1.00f);
+        c[ImGuiCol_TabUnfocusedActive] = ImVec4(0.155f, 0.155f, 0.175f, 1.00f);
+        c[ImGuiCol_DockingPreview] = ImVec4(0.97f, 0.60f, 0.16f, 0.70f);
+        c[ImGuiCol_DockingEmptyBg] = ImVec4(0.08f, 0.08f, 0.09f, 1.00f);
+        c[ImGuiCol_TextSelectedBg] = ImVec4(0.97f, 0.60f, 0.16f, 0.25f);
+        c[ImGuiCol_DragDropTarget] = accent;
+        c[ImGuiCol_NavHighlight] = accent;
+        c[ImGuiCol_ModalWindowDimBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.55f);
     }
-colors[ImGuiCol_Text] = ImVec4(0.88f, 0.88f, 0.90f, 1.00f);
-colors[ImGuiCol_TextDisabled] = ImVec4(0.50f, 0.50f, 0.55f, 1.00f);
-colors[ImGuiCol_WindowBg] = ImVec4(0.126f, 0.126f, 0.137f, 1.00f);
-colors[ImGuiCol_ChildBg] = ImVec4(0.118f, 0.118f, 0.128f, 1.00f);
-colors[ImGuiCol_PopupBg] = ImVec4(0.140f, 0.140f, 0.155f, 0.98f);
-colors[ImGuiCol_Border] = ImVec4(0.25f, 0.25f, 0.29f, 0.65f);
-colors[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-colors[ImGuiCol_FrameBg] = ImVec4(0.165f, 0.165f, 0.185f, 1.00f);
-colors[ImGuiCol_FrameBgHovered] = ImVec4(0.22f, 0.22f, 0.25f, 1.00f);
-colors[ImGuiCol_FrameBgActive] = ImVec4(0.26f, 0.26f, 0.30f, 1.00f);
-colors[ImGuiCol_TitleBg] = ImVec4(0.094f, 0.094f, 0.105f, 1.00f);
-colors[ImGuiCol_TitleBgActive] = ImVec4(0.155f, 0.155f, 0.175f, 1.00f);
-colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.07f, 0.07f, 0.08f, 1.00f);
-colors[ImGuiCol_MenuBarBg] = ImVec4(0.105f, 0.105f, 0.118f, 1.00f);
-colors[ImGuiCol_ScrollbarBg] = ImVec4(0.10f, 0.10f, 0.11f, 1.00f);
-colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.25f, 0.25f, 0.28f, 1.00f);
-colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.34f, 0.34f, 0.38f, 1.00f);
-colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.42f, 0.42f, 0.47f, 1.00f);
-colors[ImGuiCol_CheckMark] = accent;
-colors[ImGuiCol_SliderGrab] = ImVec4(0.85f, 0.53f, 0.15f, 1.00f);
-colors[ImGuiCol_SliderGrabActive] = accent;
-colors[ImGuiCol_Button] = ImVec4(0.205f, 0.205f, 0.235f, 1.00f);
-colors[ImGuiCol_ButtonHovered] = ImVec4(0.29f, 0.29f, 0.33f, 1.00f);
-colors[ImGuiCol_ButtonActive] = ImVec4(0.97f, 0.60f, 0.16f, 0.85f);
-colors[ImGuiCol_Header] = ImVec4(0.195f, 0.195f, 0.225f, 1.00f);
-colors[ImGuiCol_HeaderHovered] = ImVec4(0.28f, 0.28f, 0.32f, 1.00f);
-colors[ImGuiCol_HeaderActive] = ImVec4(0.36f, 0.36f, 0.41f, 1.00f);
-colors[ImGuiCol_Separator] = ImVec4(0.22f, 0.22f, 0.26f, 1.00f);
-colors[ImGuiCol_SeparatorHovered] = ImVec4(0.97f, 0.60f, 0.16f, 0.78f);
-colors[ImGuiCol_SeparatorActive] = ImVec4(0.97f, 0.60f, 0.16f, 1.00f);
-colors[ImGuiCol_ResizeGrip] = ImVec4(0.25f, 0.25f, 0.29f, 0.40f);
-colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.97f, 0.60f, 0.16f, 0.67f);
-colors[ImGuiCol_ResizeGripActive] = ImVec4(0.97f, 0.60f, 0.16f, 0.95f);
-colors[ImGuiCol_Tab] = ImVec4(0.135f, 0.135f, 0.150f, 1.00f);
-colors[ImGuiCol_TabHovered] = ImVec4(0.26f, 0.26f, 0.30f, 1.00f);
-colors[ImGuiCol_TabActive] = ImVec4(0.205f, 0.205f, 0.235f, 1.00f);
-colors[ImGuiCol_TabUnfocused] = ImVec4(0.115f, 0.115f, 0.128f, 1.00f);
-colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.155f, 0.155f, 0.175f, 1.00f);
-colors[ImGuiCol_DockingPreview] = ImVec4(0.97f, 0.60f, 0.16f, 0.70f);
-colors[ImGuiCol_DockingEmptyBg] = ImVec4(0.08f, 0.08f, 0.09f, 1.00f);
-colors[ImGuiCol_TextSelectedBg] = ImVec4(0.97f, 0.60f, 0.16f, 0.25f);
-colors[ImGuiCol_DragDropTarget] = accent;
-colors[ImGuiCol_NavHighlight] = accent;
-colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.55f);
 }
 
 void GUI::Init() {
@@ -348,6 +504,7 @@ void GUI::Init() {
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
+    LoadUserSettings();
     ApplyTheme();
 
     // Шрифты с кириллицей: базовый + средний/крупный для runtime UI
@@ -648,6 +805,7 @@ void GUI::HandleHotkeys(EditorContext& ctx) {
         }
         return;
     }
+    if (ctrl && shift && in.WasKeyPressed(GLFW_KEY_B)) { m_ShowBuildDialog = !m_ShowBuildDialog; return; }
     if (ctrl && in.WasKeyPressed(GLFW_KEY_P)) {
         EditorState& st = *ctx.state;
         st = (st == EditorState::Edit) ? EditorState::Play : EditorState::Edit;
@@ -742,7 +900,7 @@ void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
                 m_ShowProjectManagerWindow = true;
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Build Game...")) {
+            if (ImGui::MenuItem("Build Settings...", "Ctrl+Shift+B")) {
                 m_ShowBuildDialog = true;
                 m_BuildStatus.clear();
                 m_BuildRunning = false;
@@ -833,6 +991,7 @@ void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
             if (ImGui::MenuItem("Inspector", nullptr, m_ShowInspector)) { m_ShowInspector = !m_ShowInspector; m_RebuildDockLayout = true; }
             if (ImGui::MenuItem("Project", nullptr, m_ShowProject)) { m_ShowProject = !m_ShowProject; m_RebuildDockLayout = true; }
             if (ImGui::MenuItem("Script Editor", nullptr, m_ShowCodeWindow)) m_ShowCodeWindow = !m_ShowCodeWindow;
+            if (ImGui::MenuItem("Build Settings", nullptr, m_ShowBuildDialog)) m_ShowBuildDialog = !m_ShowBuildDialog;
             ImGui::EndMenu();
         }
 
@@ -2161,9 +2320,8 @@ void GUI::RenderProject(EditorContext& ctx) {
                              ImVec2(pos.x + (tileW - 64) * 0.5f, iconTop),
                              ImVec2(pos.x + (tileW + 64) * 0.5f, iconTop + 64.0f));
             } else {
-                const char* icon = isDir ? "[dir]" : AssetIcon(ExtLower(path));
-                dl->AddText(ImVec2(pos.x + (tileW - textW(icon)) * 0.5f, iconTop + 24.0f),
-                            isDir ? IM_COL32(235, 200, 90, 255) : IM_COL32(200, 200, 200, 255), icon);
+                DrawSysIcon(dl, ImVec2(pos.x + tileW * 0.5f, iconTop + 32.0f), 40.0f,
+                            IconForExt(ExtLower(path), isDir));
             }
             // имя с обрезкой по ширине плитки
             dl->PushClipRect(pos, corner, true);
@@ -2194,10 +2352,15 @@ void GUI::RenderProject(EditorContext& ctx) {
                 ImGui::Image((ImTextureID)(intptr_t)tex, ImVec2(th, th));
                 ImGui::SameLine();
             }
-            std::string label = (isDir ? std::string("[dir] ") : std::string(AssetIcon(ExtLower(path))) + " ")
-                              + path.filename().string();
+            std::string label = "        " + path.filename().string();
             if (ImGui::Selectable(label.c_str(), selected, ImGuiTreeNodeFlags_SpanAvailWidth))
                 m_SelectedAsset = path.string();
+            {
+                ImVec2 rmin = ImGui::GetItemRectMin();
+                DrawSysIcon(ImGui::GetWindowDrawList(),
+                            ImVec2(rmin.x + 14.0f, rmin.y + ImGui::GetItemRectSize().y * 0.5f),
+                            ImGui::GetItemRectSize().y - 6.0f, IconForExt(ExtLower(path), isDir));
+            }
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
                 onDouble(path, isDir);
             if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
@@ -2837,10 +3000,8 @@ void GUI::RenderSettings(EditorContext& ctx) {
         }
 
         ImGui::Separator();
-        if (ImGui::Button("Close", ImVec2(120, 0)))
-            m_ShowSettings = false;
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape))
-            m_ShowSettings = false;
+        if (ImGui::Button("Close", ImVec2(120, 0))) { m_ShowSettings = false; SaveUserSettings(); }
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) { m_ShowSettings = false; SaveUserSettings(); }
         ImGui::EndPopup();
     }
 }
@@ -3251,7 +3412,8 @@ static bool RunShell(const std::string& cmd, std::string& outLog) {
 }
 
 bool AstraBuildGame(const std::string& exeSrc, const std::string& scenePath,
-                    const std::string& destDir, int mode, bool copyEngineLib, std::string& status) {
+                    const std::string& destDir, int mode, bool copyEngineLib, bool encrypt,
+                    std::string& status) {
     std::error_code ec;
     fs::path dest(destDir);
     fs::create_directories(dest, ec);
@@ -3320,21 +3482,31 @@ bool AstraBuildGame(const std::string& exeSrc, const std::string& scenePath,
             std::error_code ec2;
             fs::create_directories(target.parent_path(), ec2);
             std::string data = ReadAllBytes(rel);
-            if (data.empty() || !AssetIO::WriteEncrypted(target.string(), data)) {
-                std::cerr << "[Build] encrypt failed: " << rel << "\n";
+            if (data.empty()) { okc = false; continue; }
+            bool wrote;
+            if (encrypt) {
+                wrote = AssetIO::WriteEncrypted(target.string(), data);
+            } else {
+                std::ofstream tf(target, std::ios::binary | std::ios::trunc);
+                wrote = tf.is_open() && (bool)tf.write(data.data(), (std::streamoff)data.size());
+            }
+            if (!wrote) {
+                std::cerr << "[Build] write failed: " << rel << "\n";
                 okc = false;
                 continue;
             }
             totalBytes += data.size();
         }
-        std::cout << "[Build] assets: " << deps.size() << " файлов (" << (totalBytes >> 10) << " KiB), зашифровано\n";
+        std::cout << "[Build] assets: " << deps.size() << " файлов (" << (totalBytes >> 10) << " KiB), "
+                  << (encrypt ? "зашифровано" : "без шифрования") << "\n";
         fs::create_directories(dest / "build-scripts", ec);
         for (const auto& so : soPaths) {
             std::error_code ec3;   // .so не шифруем: его грузит dlopen
             fs::copy_file(so, dest / so, fs::copy_options::overwrite_existing, ec3);
             if (ec3) { std::cerr << "[Build] copy .so: " << ec3.message() << "\n"; okc = false; }
         }
-        if (!AssetIO::WriteEncrypted((dest / "game.json").string(), gameJson)) okc = false;
+        if (encrypt) { if (!AssetIO::WriteEncrypted((dest / "game.json").string(), gameJson)) okc = false; }
+        else { std::ofstream jf(dest / "game.json"); jf << gameJson; }
         return okc;
     };
 
@@ -3345,11 +3517,12 @@ bool AstraBuildGame(const std::string& exeSrc, const std::string& scenePath,
         if (ec) { status = "Копирование бинарника: " + ec.message(); return false; }
 
         std::vector<std::pair<std::string, std::string>> files;
-        for (const auto& rel : deps) files.emplace_back(rel, AssetIO::Encrypt(ReadAllBytes(rel)));
+        for (const auto& rel : deps)
+            files.emplace_back(rel, encrypt ? AssetIO::Encrypt(ReadAllBytes(rel)) : ReadAllBytes(rel));
         for (const auto& so : soPaths) {
             if (fs::exists(so, ec)) files.emplace_back(so, ReadAllBytes(so));  // .so — как есть (dlopen)
         }
-        files.emplace_back("game.json", AssetIO::Encrypt(gameJson));
+        files.emplace_back("game.json", encrypt ? AssetIO::Encrypt(gameJson) : gameJson);
 
         std::ofstream ef(outExe, std::ios::binary | std::ios::app);
         if (!ef.is_open()) { status = "Не удалось дописать бандл в exe"; return false; }
@@ -3442,7 +3615,8 @@ bool AstraBuildGame(const std::string& exeSrc, const std::string& scenePath,
 }
 
 bool GUI::BuildGame(const std::string& destDir, const std::string& scenePath) {
-    return AstraBuildGame("/proc/self/exe", scenePath, destDir, m_BuildMode, m_BuildCopyEngineLib, m_BuildStatus);
+    return AstraBuildGame("/proc/self/exe", scenePath, destDir, m_BuildMode, m_BuildCopyEngineLib,
+                             m_BuildEncrypt, m_BuildStatus);
 }
 
 std::string AstraBundleExtract() {
@@ -3512,39 +3686,56 @@ std::string AstraBundleExtract() {
 void GUI::RenderBuildDialog(EditorContext& ctx) {
     if (!m_ShowBuildDialog) return;
 
-    ImGui::OpenPopup("Build Game");
-    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(520, 0), ImGuiCond_Appearing);
-
-    if (ImGui::BeginPopupModal("Build Game", &m_ShowBuildDialog, 0)) {
-        m_PopupOpen = true;
-
-        // список сцен: текущая + все assets/scenes/*.scene
-        m_BuildSceneList.clear();
-        m_BuildSceneList.push_back("(текущая сцена)");
+    // Окно Build Settings (как в Unity): не модалка, докируется
+    ImGui::SetNextWindowSize(ImVec2(560, 480), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Build Settings###astraBuild", &m_ShowBuildDialog)) {
         std::error_code ec;
+
+        // Список сцен: текущая + все assets/scenes/*.scene
+        std::vector<std::string> scenes;
         if (fs::is_directory("assets/scenes", ec)) {
-            std::vector<std::string> found;
             for (const auto& entry : fs::directory_iterator("assets/scenes", ec))
                 if (ExtLower(entry.path()) == ".scene")
-                    found.push_back(entry.path().string());
-            std::sort(found.begin(), found.end());
-            for (auto& f : found) m_BuildSceneList.push_back(std::move(f));
+                    scenes.push_back(entry.path().string());
         }
-        if (m_BuildScene >= static_cast<int>(m_BuildSceneList.size())) m_BuildScene = 0;
-        m_BuildSceneList[0] = m_CurrentScenePath.empty()
-            ? "(текущая сцена — не сохранена!)" : ("(текущая: " + m_CurrentScenePath + ")");
+        std::sort(scenes.begin(), scenes.end());
+        if (!m_CurrentScenePath.empty() &&
+            std::find(scenes.begin(), scenes.end(), m_CurrentScenePath) == scenes.end())
+            scenes.insert(scenes.begin(), m_CurrentScenePath);
+        if ((int)m_BuildSceneList.size() != (int)scenes.size() || m_BuildSceneList != scenes) {
+            m_BuildSceneList = scenes;
+            m_BuildSceneIncluded.assign(scenes.size(), true);
+            if (m_BuildBoot >= (int)scenes.size()) m_BuildBoot = 0;
+        }
+        if (m_BuildProduct[0] == '\0')
+            snprintf(m_BuildProduct, sizeof(m_BuildProduct), "%s",
+                     ctx.projectManager->CurrentProjectName().c_str());
 
-        ImGui::SetNextItemWidth(-1);
-        ImGui::Combo("Scene", &m_BuildScene,
-                     [](void* data, int idx) -> const char* {
-                         auto& v = *static_cast<std::vector<std::string>*>(data);
-                         return v[idx].c_str();
-                     }, &m_BuildSceneList, static_cast<int>(m_BuildSceneList.size()));
+        ImGui::SetNextItemWidth(260.0f);
+        ImGui::InputText("Product name (имя exe)", m_BuildProduct, sizeof(m_BuildProduct));
+        ImGui::SeparatorText("Scenes Included");
+        ImGui::TextDisabled("Отметь сцены игры; радиокнопка — стартовая (первая в билде).");
+        if (m_BuildSceneList.empty()) {
+            ImGui::TextDisabled("(нет сцен в assets/scenes — сохрани хотя бы одну, Ctrl+S)");
+        }
+        for (size_t i = 0; i < m_BuildSceneList.size(); i++) {
+            const std::string& sc = m_BuildSceneList[i];
+            ImGui::PushID(sc.c_str());
+            bool boot = (int)i == m_BuildBoot;
+            if (ImGui::RadioButton("##boot", boot)) m_BuildBoot = (int)i;
+            ImGui::SameLine();
+            bool inc = m_BuildSceneIncluded[i];
+            if (ImGui::Checkbox("##inc", &inc)) m_BuildSceneIncluded[i] = inc;
+            ImGui::SameLine();
+            std::string shown = fs::path(sc).filename().string();
+            if (sc == m_CurrentScenePath) shown += "  (current)";
+            ImGui::Text("%s", shown.c_str());
+            ImGui::PopID();
+        }
 
+        ImGui::SeparatorText("Output");
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 90.0f);
-        ImGui::InputText("Output folder", m_BuildDirBuf, sizeof(m_BuildDirBuf));
+        ImGui::InputText("Folder##buildout", m_BuildDirBuf, sizeof(m_BuildDirBuf));
         ImGui::SameLine();
         if (ImGui::Button("Browse...")) {
             m_FolderPickerTarget = 4;
@@ -3553,47 +3744,36 @@ void GUI::RenderBuildDialog(EditorContext& ctx) {
             if (fs::is_directory(cur, ec)) m_FolderPickerPath = cur;
             else m_FolderPickerPath = GuiHomeDir().string();
         }
+        ImGui::Checkbox("Encrypt used assets (AENC)", &m_BuildEncrypt);
+        ImGui::SameLine();
+        ImGui::Checkbox("Copy engine library", &m_BuildCopyEngineLib);
+        ImGui::TextDisabled("В билд попадают только ассеты, реально используемые сценами "
+                            "(+префабы рекурсивно); скрипты предкомпилируются в .so.");
 
-        const char* buildModes[] = { "Лаунчер + либка движка (рекомендуется)",
-                                     "Один исполняемый файл", "Папка с бинарником astra" };
-        ImGui::Combo("Тип сборки", &m_BuildMode, buildModes, 3);
-        if (m_BuildMode == 0) {
-            ImGui::Checkbox("Копировать libastra_engine.so рядом с игрой", &m_BuildCopyEngineLib);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("С галочкой — игра переносима (либка рядом, rpath=$ORIGIN).\n"
-                                  "Без — либка берётся из папки сборки (rpath абсолютный).");
-        }
         ImGui::Separator();
-        if (m_BuildMode == 0)
-            ImGui::TextWrapped("Как в Godot/UE: игра — крошечный лаунчер, движок подключается как "
-                               "библиотека (не дублируется в каждой сборке). Скрипты предкомпилированы "
-                               "в .so — g++ на целевой машине не нужен.");
-        else if (m_BuildMode == 1)
-            ImGui::TextWrapped("Один файл: движок + assets + .so + game.json приклеены к exe; при первом "
-                               "запуске распакуется в <имя>.bundle/ рядом. ESC — выход.");
-        else
-            ImGui::TextWrapped("Папка: astra + assets/ + build-scripts/*.so + game.json. Запуск: ./astra --play");
-        if (!m_BuildStatus.empty()) {
-            ImGui::TextWrapped("%s", m_BuildStatus.c_str());
-        }
-
-        if (ImGui::Button("Build", ImVec2(120, 0))) {
-            std::string scene = (m_BuildScene <= 0) ? m_CurrentScenePath : m_BuildSceneList[m_BuildScene];
-            if (scene.empty()) {
-                m_BuildStatus = "Нет сцены: сохраните текущую (Ctrl+S) или выберите файл";
-            } else if (m_CurrentScenePath.empty() || m_SceneDirty) {
-                SaveSceneNow(ctx); // билдим то, что видим
-                scene = m_CurrentScenePath;
+        if (ImGui::Button("Build", ImVec2(140, 0))) {
+            m_BuildStatus.clear();
+            std::string bootScene;
+            for (size_t i = 0; i < m_BuildSceneList.size(); i++) {
+                if (m_BuildSceneIncluded[i]) { bootScene = m_BuildSceneList[i]; break; }
+                if ((int)i == m_BuildBoot) bootScene = m_BuildSceneList[i];
             }
-            if (!scene.empty()) {
+            if (bootScene.empty()) {
+                m_BuildStatus = "Нет стартовой сцены — отметь хотя бы одну";
+            } else {
+                if (bootScene == m_CurrentScenePath && m_SceneDirty) SaveSceneNow(ctx);
                 m_BuildRunning = true;
-                BuildGame(m_BuildDirBuf, scene);
+                fs::path dest = fs::path(m_BuildDirBuf) / (m_BuildProduct[0] ? m_BuildProduct : "astra_game");
+                BuildGame(dest.string(), bootScene);
                 m_BuildRunning = false;
             }
         }
         ImGui::SameLine();
-        if (ImGui::Button("Close", ImVec2(120, 0))) m_ShowBuildDialog = false;
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) m_ShowBuildDialog = false;
-        ImGui::EndPopup();
+        ImGui::TextDisabled("лаунчер + libastra_engine.so, только нужные ассеты");
+        if (!m_BuildStatus.empty()) {
+            ImGui::Separator();
+            ImGui::TextWrapped("%s", m_BuildStatus.c_str());
+        }
     }
+    ImGui::End();
 }

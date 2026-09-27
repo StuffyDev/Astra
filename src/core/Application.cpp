@@ -483,6 +483,18 @@ void Application::PaintTileAtMouse() {
 void Application::Update(float deltaTime) {
     Audio::NewFrame();
 
+    // Запрос выхода из скрипта: QuitGame()
+    if (Scripting::QuitRequested()) {
+        Scripting::ClearQuit();
+        if (m_PlayerMode) glfwSetWindowShouldClose(m_Window->GetNativeWindow(), GLFW_TRUE);
+        else m_EditorState = EditorState::Edit;
+    }
+    // Захват мыши: CaptureMouse(true/false)
+    if (int cap = Scripting::CaptureMouseState()) {
+        glfwSetInputMode(m_Window->GetNativeWindow(), GLFW_CURSOR,
+                         cap == 1 ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+    }
+
     // Спрайт-анимации: кадры крутятся и в Edit (превью), и в Play; Pause — стоп
     if (m_EditorState != EditorState::Pause) {
         for (auto& e : m_SceneManager->GetEntities()) {

@@ -98,6 +98,13 @@ EmitParticles(Owner(), 30);
 
 // 游戏相机震动（game feel）：振幅为世界单位，时长以秒计
 ShakeCamera(15.0f, 0.3f);
+
+// 退出游戏：在播放器里关闭窗口，在编辑器里只是停止 Play
+QuitGame();                       // Exit 按钮：GameUI::WasClicked(exitId) -> QuitGame()
+// 鼠标捕获（射击/策略游戏）：系统光标被隐藏，鼠标事件照常送达
+CaptureMouse(true); if (IsMouseCaptured()) { ... }
+// 生成预设（子弹、敌人）：返回实例根节点的 id（0 — 出错）
+uint32_t bullet = InstantiatePrefab("assets/prefabs/bullet.prefab", WorldPosition());
 ```
 
 ## 4. 访问场景

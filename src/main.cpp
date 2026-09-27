@@ -27,7 +27,7 @@ int main(int argc, char** argv) {
         }
         if (buildOut.empty()) buildOut = "game_build";
         std::string status;
-        bool ok = AstraBuildGame("/proc/self/exe", buildScene, buildOut, buildMode, true, status);
+        bool ok = AstraBuildGame("/proc/self/exe", buildScene, buildOut, buildMode, true, true, status);
         std::cout << status << "\n";
         return ok ? 0 : 1;
     }

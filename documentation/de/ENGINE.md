@@ -164,33 +164,44 @@ sind sie klickbar; das Skript liest `GameUI::WasClicked(id)` / `GameUI::GetValue
 - **Audio** — Master Volume, Mute, Status des Geräts.
 
 Die Dateibrowser (Browse/Import) sind gewöhnliche Fenster: Man kann parallel mit dem Rest der
-Oberfläche arbeiten, ESC schließt sie.
+Oberfläche arbeiten, ESC schließt sie. Alle Einstellungen werden in `~/.astra/config.ini` gespeichert
+und beim Start wiederhergestellt (Thema, Hintergrund, Grid, Snap, px/m, Lautstärke, Time Scale).
+Die Oberfläche ist weich und abgerundet, in zwei Themen: das dunkle »Astra Slate« und das helle
+»Astra Paper«. Die Datei-Icons (Ordner/Bild/Skript/Shader/Szene/Prefab/Audio) sind als Vektoren im
+Engine-Code gezeichnet — gar keine externen Assets.
 
 ## 11. Spiel bauen und Player
 
-**File ▸ Build Game...** — drei Modi (wie in Godot/UE, die Engine wird in jedem Build nicht dupliziert):
+**File ▸ Build Settings...** (**Ctrl+Shift+B**) — ein andockbares Fenster im Unity-Stil:
 
-1. **Launcher + Engine-Bibliothek (empfohlen)** — das Spiel wird als winzige exe (~18 KB) gebaut,
-   die mit `libastra_engine.so` gelinkt ist. Die Option »Bibliothek daneben kopieren«
-   (rpath `$ORIGIN`) hält den Ordner portabel; ohne sie kommt die Bibliothek aus dem Build-Ordner.
-   Die Skripte sind zu `.so` vorkompiliert — g++ auf dem Zielrechner wird nicht gebraucht.
-   Start: einfach `./spielname` (cwd = Ordner der exe).
-2. **Eine ausführliche Datei** — an die Binary ist ein Bundle angehängt (Engine + assets + .so +
-   game.json); beim ersten Start wird es neben der Datei nach `<name>.bundle/` ausgepackt.
-   Eine Datei = Spiel.
-3. **Ordner mit der astra-Binary** — vollständige Kopie: `astra` + `assets/` + `build-scripts/` +
-   `game.json`, Start mit `./astra --play`.
+- **Product name** — der Name der Spiel-exe;
+- **Scenes Included** — alle Szenen des Projekts: das Häkchen entscheidet, welche Szenen in den Build
+  gehen, der Radio-Button wählt die Startszene (die das gebaute Spiel beim Start lädt);
+- Ausgabe-**Folder** (+ Browse...) — wohin der Build geschrieben wird;
+- **Encrypt used assets** — `AENC`-Verschlüsselung aller Assets, die der Build mitnimmt;
+- **Copy engine library** — `libastra_engine.so` neben die exe kopieren.
 
-CLI ohne GUI: `./Astra --build assets/scenes/x.scene --out ./game [--single|--folder]`
-(Standard ist Modus 1). Player-Flags: `--play`, `--scene <path>`, `--project <dir>`. Im Spiel steht
-die komplette Skript-API zur Verfügung, einschließlich `LoadScene` (Level) und `Log` (schreibt in die Konsole).
+**Build** erzeugt immer genau eine Art Release: einen winzigen Launcher (~18 KB), der mit
+`libastra_engine.so` gelinkt ist und nur die von den Szenen wirklich genutzten (verschlüsselten) Assets
+sowie die vorkompilierten `.so`-Skripte enthält — g++ auf dem Zielrechner wird nicht gebraucht. Mit
+»Copy engine library« liegt die Bibliothek direkt neben der exe, und der rpath `$ORIGIN` hält den Ordner
+portabel; ohne sie kommt die Bibliothek aus dem Build-Ordner. Start: einfach `./spielname`
+(cwd = Ordner der exe).
+
+Die Varianten »eine ausführliche Datei« und »Ordner mit der astra-Binary« gibt es jetzt nur noch per
+CLI: `./Astra --build assets/scenes/x.scene --out ./game [--single|--folder]` — `--single` hängt ein
+Bundle (Engine + assets + .so + game.json) an die Binary, das sich beim ersten Start neben sich selbst
+nach `<name>.bundle/` auspackt (eine Datei = Spiel); `--folder` legt die vollständige Kopie an: `astra`
++ `assets/` + `build-scripts/` + `game.json`, Start mit `./astra --play`. Player-Flags: `--play`,
+`--scene <path>`, `--project <dir>`. Im Spiel steht die komplette Skript-API zur Verfügung,
+einschließlich `LoadScene` (Level) und `Log` (schreibt in die Konsole).
 
 **Nur das Notwendige + Verschlüsselung**: in den Build wandern NICHT alle `assets/`, sondern nur die Dateien,
 die die Szene tatsächlich benutzt (Texturen/Shader/Audio/Tilemap- & Particle-Atlase + die Prefabs rekursiv).
-Alle werden verschlüsselt (`AENC`: ein XOR-Keystream aus splitmix64) und beim Lesen von der Engine transparent
-entschlüsselt — im Spielordner liegen keine rohen Texturen/Szenen/Audios. Die `.so` der Skripte bleiben roh
-(die lädt dlopen). Das ist Verschleierung »gegen neugierige Blicke«, keine kryptografische Absicherung
-gegen Cracking.
+Ist **Encrypt used assets** angeschaltet, werden alle verschlüsselt (`AENC`: ein XOR-Keystream aus
+splitmix64) und beim Lesen von der Engine transparent entschlüsselt — im Spielordner liegen keine rohen
+Texturen/Szenen/Audios. Die `.so` der Skripte bleiben roh (die lädt dlopen). Das ist Verschleierung
+»gegen neugierige Blicke«, keine kryptografische Absicherung gegen Cracking.
 
 ## 12. Konsole
 

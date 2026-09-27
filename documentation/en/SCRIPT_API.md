@@ -99,6 +99,13 @@ EmitParticles(Owner(), 30);
 
 // Camera shake (game feel): amplitude in world units, duration in seconds
 ShakeCamera(15.0f, 0.3f);
+
+// Leaving the game: closes the window in the player, stops Play in the editor
+QuitGame();                       // an Exit button: GameUI::WasClicked(exitId) -> QuitGame()
+// Mouse capture (shooters/strategy): the system cursor hides, the mouse events stay
+CaptureMouse(true); if (IsMouseCaptured()) { ... }
+// Spawning a prefab (bullets, enemies): returns the id of the instance's root (0 — error)
+uint32_t bullet = InstantiatePrefab("assets/prefabs/bullet.prefab", WorldPosition());
 ```
 
 ## 4. Accessing the scene

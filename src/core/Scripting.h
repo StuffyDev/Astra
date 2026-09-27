@@ -36,6 +36,9 @@ public:
     static bool ConsumeSceneChange(std::string& outPath);
     // Тряска камеры: смещение на этот кадр (0,0 если не трясём)
     static glm::vec2 ShakeOffset();
+    static bool QuitRequested();
+    static void ClearQuit();
+    static int CaptureMouseState(); // 1=захват, 2=отпустить, 0=нет изменений
 };
 
 // Символы, которые используют скрипты (экспортируются бинарником, -rdynamic)
@@ -44,3 +47,10 @@ bool DestroyEntity(uint32_t id);
 void LoadScene(const std::string& scenePath);
 // Тряска game-камеры: амплитуда в мировых единицах, длительность в секундах
 void ShakeCamera(float amplitude, float duration);
+// Выйти из игры (плеер — закрыть окно; редактор — остановить Play)
+void QuitGame();
+// Захват курсора (мышь внутри окна, без указателя системы)
+void CaptureMouse(bool on);
+bool IsMouseCaptured();
+// Спавн префаба в мировой точке -> id корня (0 = ошибка)
+uint32_t InstantiatePrefab(const std::string& prefabPath, const glm::vec2& worldPos);

@@ -99,6 +99,13 @@ EmitParticles(Owner(), 30);
 
 // Screenshake der Spiel-Kamera (Game Feel): Amplitude in Welteinheiten, Dauer in Sekunden
 ShakeCamera(15.0f, 0.3f);
+
+// Spiel verlassen: im Player schließt es das Fenster, im Editor stoppt es Play
+QuitGame();                       // Exit-Button: GameUI::WasClicked(exitId) -> QuitGame()
+// Mauserfassung (Shooter/Strategie): der System-Cursor verschwindet, die Maus-Ereignisse bleiben
+CaptureMouse(true); if (IsMouseCaptured()) { ... }
+// Prefab spawnen (Kugeln, Gegner): gibt die id der Instanz-Wurzel zurück (0 — Fehler)
+uint32_t bullet = InstantiatePrefab("assets/prefabs/bullet.prefab", WorldPosition());
 ```
 
 ## 4. Zugriff auf die Szene
