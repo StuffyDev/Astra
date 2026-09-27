@@ -90,6 +90,12 @@ Deselect）；在 Project 中 — 在空白处（Create Folder/Shader/Script、I
 
 GameObject ▸ Create Empty/Quad/Circle/Camera/UI — 快速预设。
 
+**组件按 Unity 的方式添加**：新实体只有 Transform+Sprite；
+Rigidbody/Collider/Audio/Script/Particle Emitter/Tilemap/UI/Camera/Animation 通过 Inspector 底部的
+**+ Add Component** 按钮添加，用 section 标题里的 **x** 按钮移除。组件的「有无」标记会序列化进场景文件。
+旧场景文件（v0.10 之前）按原来的方式加载 —— 那里的组件都是「已启用」的（legacy）。
+此外 Inspector 和 Hierarchy 的比例现在更紧凑（20%/17%）。
+
 ## 5. 场景
 
 - 文本格式：`Astra Scene v2`（一个实体 = 一个 `ENTITY ... END_ENTITY` 块）。

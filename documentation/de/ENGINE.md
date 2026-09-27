@@ -92,6 +92,12 @@ Eine Entity = ein Satz fest vorgegebener Komponenten (im Moment so; ein reines E
 
 GameObject ▸ Create Empty/Quad/Circle/Camera/UI — Schnell-Presets.
 
+**Komponenten werden wie in Unity hinzugefügt**: eine neue Entity hat nur Transform+Sprite;
+Rigidbody/Collider/Audio/Script/Particle Emitter/Tilemap/UI/Camera/Animation werden per
+**+ Add Component** unten im Inspector hinzugefügt und mit dem **x**-Button im Header einer Sektion entfernt.
+Die Flags »Komponente vorhanden« werden mit serialisiert. Alte Scene-Dateien (vor v0.10) laden wie zuvor — dort sind
+alle Komponenten »aktiviert« (legacy). Außerdem sind Inspector und Hierarchy jetzt kompakter proportioniert (20%/17%).
+
 ## 5. Szenen
 
 - Textformat: `Astra Scene v2` (eine Entity = Block `ENTITY ... END_ENTITY`).

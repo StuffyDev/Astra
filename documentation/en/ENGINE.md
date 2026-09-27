@@ -92,6 +92,12 @@ An entity = a set of fixed components (for now; a pure ECS is on the roadmap):
 
 GameObject ▸ Create Empty/Quad/Circle/Camera/UI — quick presets.
 
+**Components are added Unity-style**: a new entity has only Transform+Sprite;
+Rigidbody/Collider/Audio/Script/Particle Emitter/Tilemap/UI/Camera/Animation are added with the
+**+ Add Component** button at the bottom of the Inspector and removed with the **x** button in a section header.
+The presence flags are serialized into the scene file. Old scene files (before v0.10) load as before — there
+the components are all "enabled" (legacy). Also, the Inspector and Hierarchy docks are now more compact (20%/17%).
+
 ## 5. Scenes
 
 - Text format: `Astra Scene v2` (one entity = one `ENTITY ... END_ENTITY` block).
