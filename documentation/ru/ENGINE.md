@@ -211,6 +211,7 @@ dlopen). Это обфускация «от любопытных глаз», н�
 
 - `assets/scenes/black_hole.scene` — шейдерный мир (аккреционный диск, орбита скриптом, луна-ребёнок).
 - `assets/scenes/animation_demo.scene` — спрайтшит-мяч 4×2 + живые Material-параметры.
+- `assets/scenes/3d_demo.scene` — 3D: пол, прыгающий куб, тени, свой меш-шейдер.
 - `assets/scripts/rotate.cpp`, `player.cpp`, `examples/black_hole/orbit_planet.cpp`.
 - `examples/` — исходники примеров; `templates/default_project` — шаблон проекта.
 
@@ -288,8 +289,10 @@ Follow/Level Bounds — 2D-механики, в 3D-ветке они не уча
 **Сборка игры**: `.obj` из `MeshPath` и картинка из `MeshTex` попадают в зависимости сцены,
 то есть копируются/шифруются так же, как текстуры и звуки (раздел 11).
 
-**Пример**: `assets/scenes/3d_demo.scene` — пол, три куба и сфера под перспективной камерой
-с тенями (открыть двойным кликом в Project).
+**Пример**: `assets/scenes/3d_demo.scene` — пол, три куба, катящаяся сфера и зона-триггер под
+перспективной камерой с тенями (открыть двойным кликом в Project). Там же: `Cube Bouncing` с
+прыжками на скрипте `assets/scripts/bounce3d.cpp` (гравитация + `Raycast3D` вниз) и `Cube Metal`
+на своём шейдере `assets/shaders/metal3d.frag`. Разбор сцены — `examples/3d_demo/README.md`.
 
 **3D-физика**: компоненты **Rigidbody (3D)** и **Collider (3D)** добавляются кнопкой
 `+ Add Component` (только у 3D-сущностей). Гравитация — `-Y` (настраивается в Edit ▸ Settings ▸
