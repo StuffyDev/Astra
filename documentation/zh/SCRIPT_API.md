@@ -95,6 +95,9 @@ bool ok = PlayClip(Owner(), "run");            // Inspector 中 Clips 表里定�
 
 // 粒子：从实体的发射器瞬时喷出一批（爆炸/火花）
 EmitParticles(Owner(), 30);
+
+// 游戏相机震动（game feel）：振幅为世界单位，时长以秒计
+ShakeCamera(15.0f, 0.3f);
 ```
 
 ## 4. 访问场景

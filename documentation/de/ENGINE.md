@@ -77,6 +77,8 @@ Eine Entity = ein Satz fest vorgegebener Komponenten (im Moment so; ein reines E
 - **Collider** — Box (halbe Größe) / Circle (Radius), Is Trigger. Visualisierung in der Scene.
 - **Camera** — Main Camera (eine aktive), Zoom, Viewport Offset. Der Game-View blickt durch sie;
   UI-Elemente werden in Weltkoordinaten dieser Ansicht positioniert.
+  **Follow Target** — die Kamera folgt sanft der gewählten Entity (Damping = Sekunden,
+  Offset = Zielversatz). Screenshake aus Skripten: `ShakeCamera(15.0f, 0.3f)`.
 - **UI Element** — siehe Abschnitt 7.
 - **Audio Source** — Clip Path, Volume, Pitch, Loop, Play On Awake, Buttons Preview/Stop.
 - **Tilemap** — ein Kachelraster aus einem Atlas: Atlas Path, Tile Size, Atlas Cols, Grid W×H, Tint,
@@ -84,6 +86,9 @@ Eine Entity = ein Satz fest vorgegebener Komponenten (im Moment so; ein reines E
   die aktuelle Kachel setzt das Werkzeug **Tile (T)**: LMB malt die gewählte Kachel ins Raster der
   gewählten Entity, Shift+LMB löscht. `transform.position` der Entity = linke obere Ecke des Rasters.
   Für den schnellen Start gibt es Fill floor/Clear.
+  **Solid (physics)** — nicht leere Zellen werden zu statischen AABB-Kollidern (Boden/Wände
+  für einen Plattformler; ein Körper landet korrekt darauf und die Geschwindigkeit entlang der
+  Einschlagachse wird nullgesetzt).
 - **Particle Emitter** — Textur (oder Quadrat), max/rate, life/speed/angle min-max, gravity,
   size start/end, color start/end (Alpha blendet aus), Loop, Play On Awake, Button Burst.
   Aus Skripten: `EmitParticles(Owner(), 30)`.
@@ -154,7 +159,7 @@ sind sie klickbar; das Skript liest `GameUI::WasClicked(id)` / `GameUI::GetValue
 - **Physics** — Gravitation (m/s², Unity-style 0,-9.81), Pixels per meter (Maßstab der Welt).
 - **Render** — Hintergrundfarbe von Szene/Spiel, Anzeige von Grid und Kollidern in der Scene,
   Grid-/Snap-Weite (px).
-- **Editor** — Snap-Weite der Rotation (°).
+- **Editor** — Snap-Weite der Rotation (°), UI-Thema **Light theme** (helles/dunkles UI zur Laufzeit umschaltbar).
 - **Time** — Time Scale (wird beim Wechsel in Play angewandt, überlebt Stop).
 - **Audio** — Master Volume, Mute, Status des Geräts.
 

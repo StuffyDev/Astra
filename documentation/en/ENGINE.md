@@ -77,6 +77,8 @@ An entity = a set of fixed components (for now; a pure ECS is on the roadmap):
 - **Collider** — Box (half sizes) / Circle (radius), Is Trigger. Visualized in the Scene.
 - **Camera** — Main Camera (one active), Zoom, Viewport Offset. The Game view looks
   through it; UI elements are positioned in world coordinates of this view.
+  **Follow Target** — the camera smoothly follows the selected entity (Damping = seconds,
+  Offset = aim shift). Screen shake from scripts: `ShakeCamera(15.0f, 0.3f)`.
 - **UI Element** — see section 7.
 - **Audio Source** — Clip Path, Volume, Pitch, Loop, Play On Awake, Preview/Stop buttons.
 - **Tilemap** — a grid of tiles from an atlas: Atlas Path, Tile Size, Atlas Cols, Grid W×H, Tint,
@@ -84,6 +86,8 @@ An entity = a set of fixed components (for now; a pure ECS is on the roadmap):
   tile is applied with the **Tile (T)** brush: LMB paints the selected tile on the selected entity's grid,
   Shift+LMB erases. The entity's `transform.position` = the grid's top-left corner.
   Fill floor/Clear buttons for a quick start.
+  **Solid (physics)** — non-empty cells become static AABB colliders (a platformer floor/walls;
+  a body lands on them and the velocity along the impact axis is zeroed).
 - **Particle Emitter** — a texture (or a plain square), max/rate, life/speed/angle min-max, gravity,
   size start/end, color start/end (the alpha fades out), Loop, Play On Awake, the Burst button.
   From scripts: `EmitParticles(Owner(), 30)`.
@@ -154,7 +158,7 @@ the script reads `GameUI::WasClicked(id)` / `GameUI::GetValue(id)`.
 - **Physics** — gravity (m/s², Unity-style 0,-9.81), Pixels per meter (the world scale).
 - **Render** — the scene/game background color, showing the grid and the colliders in the Scene,
   grid/snap step (px).
-- **Editor** — the rotation snap step (°).
+- **Editor** — the rotation snap step (°), UI theme **Light theme** (light/dark UI switched at runtime).
 - **Time** — Time Scale (applied when entering Play, survives Stop).
 - **Audio** — Master Volume, Mute, device status.
 

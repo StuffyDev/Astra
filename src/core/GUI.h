@@ -40,6 +40,7 @@ public:
     ~GUI();
 
     void Init();
+    void ApplyTheme();
     void Shutdown();
     void BeginFrame();
     void EndFrame();
@@ -141,6 +142,7 @@ private:
     bool m_ShowOpenProjectDialog = false;
     bool m_ShowProjectManagerWindow = false;
     bool m_ShowSettings = false;
+    bool m_ThemeDirty = false;
     char m_NewProjectName[256] = "NewProject";
     char m_NewProjectLocation[512] = "";
     char m_OpenProjectPath[512] = "";

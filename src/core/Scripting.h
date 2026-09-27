@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <glm/glm.hpp>
 
 struct Entity;
 class SceneManager;
@@ -33,9 +34,13 @@ public:
 
     // Менеджер сцен: LoadScene() из скрипта; true, если есть незагруженный запрос
     static bool ConsumeSceneChange(std::string& outPath);
+    // Тряска камеры: смещение на этот кадр (0,0 если не трясём)
+    static glm::vec2 ShakeOffset();
 };
 
 // Символы, которые используют скрипты (экспортируются бинарником, -rdynamic)
 void Log(const std::string& message);
 bool DestroyEntity(uint32_t id);
 void LoadScene(const std::string& scenePath);
+// Тряска game-камеры: амплитуда в мировых единицах, длительность в секундах
+void ShakeCamera(float amplitude, float duration);

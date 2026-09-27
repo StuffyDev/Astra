@@ -96,6 +96,9 @@ bool ok = PlayClip(Owner(), "run");            // ein Clip aus der Clips-Tabelle
 
 // Partikel: sofortiger Schwall aus dem Emitter der Entity (Explosion/Funken)
 EmitParticles(Owner(), 30);
+
+// Screenshake der Spiel-Kamera (Game Feel): Amplitude in Welteinheiten, Dauer in Sekunden
+ShakeCamera(15.0f, 0.3f);
 ```
 
 ## 4. Zugriff auf die Szene

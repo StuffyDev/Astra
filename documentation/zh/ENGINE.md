@@ -76,12 +76,16 @@ Deselect）；在 Project 中 — 在空白处（Create Folder/Shader/Script、I
 - **Collider** — Box（一半的尺寸）/ Circle（半径）、Is Trigger。在 Scene 中有可视化。
 - **Camera** — Main Camera（只有一个处于激活状态）、Zoom、Viewport Offset。Game 视图透过它观察；
   UI 元素按该视图的世界坐标定位。
+  **Follow Target** — 相机平滑跟随选中的实体（Damping = 秒，Offset = 瞄准偏移）。
+  脚本触发屏幕震动：`ShakeCamera(15.0f, 0.3f)`。
 - **UI Element** — 见第 7 节。
 - **Audio Source** — Clip Path、Volume、Pitch、Loop、Play On Awake、Preview/Stop 按钮。
 - **Tilemap** — 由图集拼出的瓦片网格：Atlas Path、Tile Size、Atlas Cols、Grid W×H、Tint、
   Sorting Order（默认在精灵下面）。Pick Tile 弹窗把图集显示成网格；选中的瓦片由 **Tile (T)** 笔刷绘制：
   LMB（鼠标左键）在选中的 Tilemap 实体的网格上放置当前瓦片，Shift+LMB 擦除。
   实体的 `transform.position` = 网格的左上角。Fill floor/Clear 按钮用于快速上手。
+  **Solid (physics)** — 非空单元格会变成静态 AABB 碰撞体（平台跳跃的地面/墙壁；
+  刚体能稳稳落在上面，撞击轴方向的速度会被归零）。
 - **Particle Emitter** — 粒子发射器：纹理（或纯色方块）、max/rate、life/speed/angle 的最小-最大值、
   gravity、size start/end、color start/end（alpha 逐渐衰减）、Loop、Play On Awake、Burst 按钮。
   脚本侧接口：`EmitParticles(Owner(), 30)`。
@@ -151,7 +155,7 @@ Entity + UI Element 组件：**Button / Text / Slider / Checkbox / Progress Bar*
 **Edit ▸ Settings**：
 - **Physics** — 重力（m/s²，Unity 风格的 0,-9.81）、Pixels per meter（世界缩放比例）。
 - **Render** — 场景/游戏的背景色、在 Scene 中显示网格与碰撞体、网格/吸附步长（px）。
-- **Editor** — 旋转吸附步长（°）。
+- **Editor** — 旋转吸附步长（°）、界面主题 **Light theme**（亮色/暗色 UI 在运行时切换）。
 - **Time** — Time Scale（在进入 Play 时生效，Stop 之后仍然保留）。
 - **Audio** — Master Volume、Mute、音频设备状态。
 

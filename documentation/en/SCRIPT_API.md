@@ -96,6 +96,9 @@ bool ok = PlayClip(Owner(), "run");            // a clip from the Clips table in
 
 // Particles: an instant batch from the entity's emitter (explosion/sparks)
 EmitParticles(Owner(), 30);
+
+// Camera shake (game feel): amplitude in world units, duration in seconds
+ShakeCamera(15.0f, 0.3f);
 ```
 
 ## 4. Accessing the scene

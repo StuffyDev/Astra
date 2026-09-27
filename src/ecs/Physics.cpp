@@ -247,6 +247,47 @@ void Physics::Step(std::vector<Entity>& entities, float fixedDeltaTime) {
         }
     }
 
+    // Тайлмапы с solid: непустые клетки как статические AABB (платформеры)
+    for (size_t i = 0; i < entities.size(); i++) {
+        auto& a = entities[i];
+        if (!a.active || !a.hasCollider || a.collider.type == ColliderType::None) continue;
+        if (a.rigidbody.isKinematic || a.parentId != 0) continue;
+        ColliderPose pa = WorldPose(entities, a);
+        float ahx, ahy;
+        if (a.collider.type == ColliderType::Circle) { float r = CircleRadius(a, pa); ahx = ahy = r; }
+        else { glm::vec2 h = HalfExtents(a, pa); ahx = h.x; ahy = h.y; }
+        glm::vec2 ac = pa.center;
+        for (auto& tmEnt : entities) {
+            if (!tmEnt.active || !tmEnt.hasTilemap || !tmEnt.tilemap.solid) continue;
+            const Tilemap& tm = tmEnt.tilemap;
+            if ((int)tm.cells.size() < tm.width * tm.height) continue;
+            glm::vec2 g = Transforms::WorldPosition(entities, tmEnt); // левый верх сетки
+            int c0 = (int)std::floor((ac.x - ahx - g.x) / tm.tileW);
+            int c1 = (int)std::floor((ac.x + ahx - g.x) / tm.tileW);
+            int r0 = (int)std::floor((g.y - ac.y - ahy) / tm.tileH);
+            int r1 = (int)std::floor((g.y - ac.y + ahy) / tm.tileH);
+            for (int r = std::max(r0, 0); r <= std::min(r1, tm.height - 1); r++) {
+                for (int c = std::max(c0, 0); c <= std::min(c1, tm.width - 1); c++) {
+                    if (tm.cells[(size_t)r * tm.width + c] < 0) continue;
+                    glm::vec2 cc(g.x + (c + 0.5f) * tm.tileW, g.y - (r + 0.5f) * tm.tileH);
+                    glm::vec2 ch(tm.tileW * 0.5f, tm.tileH * 0.5f);
+                    float dx = ac.x - cc.x, dy = ac.y - cc.y;
+                    float ox = (ahx + ch.x) - std::fabs(dx);
+                    float oy = (ahy + ch.y) - std::fabs(dy);
+                    if (ox <= 0.0f || oy <= 0.0f) continue;
+                    if (ox < oy) {
+                        a.transform.position.x += (dx > 0.0f ? ox : -ox);
+                        if (dx * a.rigidbody.velocity.x < 0.0f) a.rigidbody.velocity.x = 0.0f;
+                    } else {
+                        a.transform.position.y += (dy > 0.0f ? oy : -oy);
+                        if (dy * a.rigidbody.velocity.y < 0.0f) a.rigidbody.velocity.y = 0.0f;
+                    }
+                    ac = a.transform.position;
+                }
+            }
+        }
+    }
+
     for (uint64_t key : currentTriggerPairs) {
         if (s_LastTriggerPairs.count(key) == 0) {
             s_Events.push_back({ PhysicsEventType::TriggerEnter, uint32_t(key >> 32), uint32_t(key & 0xFFFFFFFFu) });

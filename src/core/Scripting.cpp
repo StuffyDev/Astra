@@ -43,6 +43,7 @@ std::vector<std::string> g_Errors;
 float g_Delta = 0.0f, g_UnscaledDelta = 0.0f, g_Elapsed = 0.0f, g_TimeScale = 1.0f;
 float g_DefaultTimeScale = 1.0f;
 std::string g_PendingScene;   // запрос LoadScene из скрипта, обрабатывает Application
+float g_ShakeAmp = 0.0f, g_ShakeLeft = 0.0f; // тряска камеры
 
 Script* CreateInstance(const std::string& path, uint32_t ownerId) {
     auto it = g_Libs.find(path);
@@ -244,6 +245,17 @@ bool Scripting::PrecompileScript(const std::string& cppPath, std::string& outSoP
     return CompileScript(cppPath, outSoPath, outError);
 }
 
+glm::vec2 Scripting::ShakeOffset() {
+    if (g_ShakeLeft <= 0.0f) return glm::vec2(0.0f);
+    float k = g_ShakeAmp * (g_ShakeLeft); // линейное затухание
+    static uint32_t seed = 0x9E3779B9u;
+    seed = seed * 1664525u + 1013904223u;
+    float a = ((seed >> 8) & 0xFFFF) / 32768.0f - 1.0f;
+    seed = seed * 1664525u + 1013904223u;
+    float b = ((seed >> 8) & 0xFFFF) / 32768.0f - 1.0f;
+    return glm::vec2(a, b) * k;
+}
+
 bool Scripting::ConsumeSceneChange(std::string& outPath) {
     if (g_PendingScene.empty()) return false;
     outPath = g_PendingScene;
@@ -284,6 +296,11 @@ void Script::SetVar(const char* name, float value) {
 
 void LoadScene(const std::string& scenePath) {
     g_PendingScene = scenePath;
+}
+
+void ShakeCamera(float amplitude, float duration) {
+    g_ShakeAmp = std::max(g_ShakeAmp, amplitude);
+    g_ShakeLeft = std::max(g_ShakeLeft, duration);
 }
 
 void EmitParticles(Entity* e, int count) {
@@ -343,6 +360,10 @@ void Scripting::SyncInstances(const std::vector<Entity>& entities) {
 }
 
 void Scripting::Update(float dt, const std::vector<Entity>& entities) {
+    if (g_ShakeLeft > 0.0f) {
+        g_ShakeLeft -= dt;
+        if (g_ShakeLeft <= 0.0f) { g_ShakeLeft = 0.0f; g_ShakeAmp = 0.0f; }
+    }
     (void)entities;
     g_UnscaledDelta = dt;
     g_Delta = dt * g_TimeScale;

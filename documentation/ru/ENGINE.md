@@ -76,12 +76,16 @@ Import File...).
 - **Collider** — Box (половинки размера) / Circle (радиус), Is Trigger. Визуализация в Scene.
 - **Camera** — Main Camera (одна активная), Zoom, Viewport Offset. Game-view смотрит
   через неё; UI-элементы позиционируются в мировых координатах этого вида.
+  **Follow Target** — камера плавно идёт за выбранной сущностью (Damping — секунды, Offset —
+  сдвиг прицела). Тряска из скриптов: `ShakeCamera(15.0f, 0.3f)`.
 - **UI Element** — см. раздел 7.
 - **Audio Source** — Clip Path, Volume, Pitch, Loop, Play On Awake, кнопки Preview/Stop.
 - **Tilemap** — сетка тайлов из атласа: Atlas Path, Tile Size, Atlas Cols, Grid W×H, Tint,
   Sorting Order (по умолчанию под спрайтами). Пикер тайла показывает атлас сеткой; текущий тайл —
   инструмент **Tile (T)**: ЛКМ рисует по сетке выбранной тайлмап-сущности, Shift+ЛКМ стирает.
   `transform.position` сущности = левый верх сетки. Кнопки Fill floor/Clear для быстрого старта.
+  **Solid (physics)** — непустые клетки становятся статическими AABB-коллайдерами (пол/стены
+  для платформера; тело корректно приземляется и об нулирует скорость по оси удара).
 - **Particle Emitter** — текстура (или квадрат), max/rate, life/speed/angle min-max, gravity,
   size start/end, color start/end (альфа угасает), Loop, Play On Awake, кнопка Burst.
   Из скриптов: `EmitParticles(Owner(), 30)`.
@@ -151,7 +155,7 @@ Entity + компонент UI Element: **Button / Text / Slider / Checkbox / Pr
 **Edit ▸ Settings**:
 - **Physics** — гравитация (м/с², Unity-style 0,-9.81), Pixels per meter (масштаб мира).
 - **Render** — цвет фона сцен/игры, показ сетки и коллайдеров в Scene, шаг сетки/снапа (px).
-- **Editor** — шаг снапа вращения (°).
+- **Editor** — шаг снапа вращения (°), тема интерфейса **Light theme** (светлая/тёмная на лету).
 - **Time** — Time Scale (применяется при входе в Play, переживает Stop).
 - **Audio** — Master Volume, Mute, статус устройства.
 

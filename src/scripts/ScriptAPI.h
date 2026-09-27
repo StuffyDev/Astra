@@ -63,6 +63,8 @@ public:
 void Log(const std::string& message);
 // Уничтожить сущность по id (например, Owner()->id). Возвращает false, если её нет
 bool DestroyEntity(uint32_t id);
+// Тряска камеры (game-feel): амплитуда в мировых единицах, длительность в секундах
+void ShakeCamera(float amplitude, float duration);
 // Переключение сцены во время Play/игры: движок загрузит файл и пересоздаст скрипты
 void LoadScene(const std::string& scenePath);
 

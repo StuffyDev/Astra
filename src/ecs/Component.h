@@ -1,6 +1,7 @@
 #pragma once
 #include <glm/glm.hpp>
 #include <string>
+#include <cstdint>
 #include <vector>
 
 enum class SpriteType {
@@ -69,6 +70,7 @@ struct Tilemap {
     std::vector<int> cells;    // width*height индексов тайла
     glm::vec4 color = glm::vec4(1.0f);
     int sortingOrder = -100;   // по умолчанию под спрайтами
+    bool solid = false;        // непустые клетки = статические AABB-коллайдеры
 };
 
 // Летающая частица (runtime, не сериализуется)
@@ -117,6 +119,10 @@ struct CameraComponent {
     bool mainCamera = false;
     float zoom = 1.0f;
     glm::vec2 offset = glm::vec2(0.0f, 0.0f);
+    // Follow: камера плавно идёт за сущностью (0 = выкл). Damping — секунды до сокращения дистанции.
+    uint32_t followTargetId = 0;
+    float followDamping = 0.15f;
+    glm::vec2 followOffset = glm::vec2(0.0f, 0.0f);
 };
 
 enum class UIKind {

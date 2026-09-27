@@ -62,6 +62,16 @@ void WriteEntity(std::ostream& file, const Entity& e, const std::unordered_map<u
     file << "CameraMain: " << (e.camera.mainCamera ? 1 : 0) << "\n";
     file << "CameraZoom: " << e.camera.zoom << "\n";
     file << "CameraOffset: " << e.camera.offset.x << " " << e.camera.offset.y << "\n";
+    {
+        int fidx = -1;
+        if (e.camera.followTargetId != 0) {
+            auto it = indexOf.find(e.camera.followTargetId);
+            if (it != indexOf.end()) fidx = (int)it->second;
+        }
+        file << "CameraFollowIndex: " << fidx << "\n";
+        file << "CameraFollowDamp: " << e.camera.followDamping << "\n";
+        file << "CameraFollowOffset: " << e.camera.followOffset.x << " " << e.camera.followOffset.y << "\n";
+    }
     file << "HasUI: " << (e.hasUI ? 1 : 0) << "\n";
     file << "UIKind: " << static_cast<int>(e.ui.kind) << "\n";
     file << "UILabel: " << e.ui.label << "\n";
@@ -92,6 +102,7 @@ void WriteEntity(std::ostream& file, const Entity& e, const std::unordered_map<u
         file << "TilemapSize: " << e.tilemap.width << " " << e.tilemap.height << "\n";
         file << "TilemapColor: " << e.tilemap.color.r << " " << e.tilemap.color.g << " " << e.tilemap.color.b << " " << e.tilemap.color.a << "\n";
         file << "TilemapSort: " << e.tilemap.sortingOrder << "\n";
+        file << "TilemapSolid: " << (e.tilemap.solid ? 1 : 0) << "\n";
         file << "TilemapCells:";
         for (int v : e.tilemap.cells) file << " " << v;
         file << "\n";
@@ -155,6 +166,10 @@ bool SceneSerializer::Load(SceneManager* sceneManager, const std::string& path) 
         if (ents[i].parentId != 0) {
             size_t p = ents[i].parentId - 1;
             ents[i].parentId = (p < ents.size() && p != i) ? ents[p].id : 0;
+        }
+        if (ents[i].camera.followTargetId & 0x80000000u) {
+            size_t fi = (ents[i].camera.followTargetId & 0x7FFFFFFFu) - 1;
+            ents[i].camera.followTargetId = (fi < ents.size() && fi != i) ? ents[fi].id : 0;
         }
     }
     return true;
@@ -249,6 +264,9 @@ bool SceneSerializer::LoadEntities(const std::string& path, std::vector<Entity>&
             else if (key == "CameraMain:") { int v; iss >> v; current.camera.mainCamera = v; }
             else if (key == "CameraZoom:") { iss >> current.camera.zoom; }
             else if (key == "CameraOffset:") { iss >> current.camera.offset.x >> current.camera.offset.y; }
+            else if (key == "CameraFollowIndex:") { int v; iss >> v; current.camera.followTargetId = (v >= 0) ? (uint32_t)(v + 1) : 0; current.camera.followTargetId |= 0x80000000u; }
+            else if (key == "CameraFollowDamp:") { iss >> current.camera.followDamping; }
+            else if (key == "CameraFollowOffset:") { iss >> current.camera.followOffset.x >> current.camera.followOffset.y; }
             else if (key == "HasUI:") { int v; iss >> v; current.hasUI = v; }
             else if (key == "UIKind:") { int v; iss >> v; current.ui.kind = static_cast<UIKind>(v); }
             else if (key == "UILabel:") { std::getline(iss, current.ui.label); current.ui.label = TrimLead(current.ui.label); }
@@ -291,6 +309,7 @@ bool SceneSerializer::LoadEntities(const std::string& path, std::vector<Entity>&
             else if (key == "TilemapSize:") { iss >> current.tilemap.width >> current.tilemap.height; }
             else if (key == "TilemapColor:") { iss >> current.tilemap.color.r >> current.tilemap.color.g >> current.tilemap.color.b >> current.tilemap.color.a; }
             else if (key == "TilemapSort:") { iss >> current.tilemap.sortingOrder; }
+            else if (key == "TilemapSolid:") { int v; iss >> v; current.tilemap.solid = v; }
             else if (key == "TilemapCells:") {
                 current.tilemap.cells.clear();
                 int v;

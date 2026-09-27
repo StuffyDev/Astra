@@ -9,4 +9,5 @@ struct AstraPrefs {
     static inline float GridSize = 50.0f;    // шаг сетки и снапа перемещения, px
     static inline float SnapDegrees = 15.0f; // шаг снапа вращения, °
     static inline bool ShowColliders = true; // отрисовка коллайдеров в Scene
+    static inline bool LightTheme = false;   // светлая тема редактора
 };
