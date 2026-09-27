@@ -47,6 +47,14 @@ public:
     glm::vec2 GetDragStartScale() const { return m_DragStartScale; }
     void SetDragStartScale(const glm::vec2& s) { m_DragStartScale = s; }
 
+    // 3D-гизмо выбранной сущности (рисуется в Scene-вью). mode: 0 move, 1 rotate, 2 scale
+    void SetGizmo3D(bool visible, const glm::vec3& center, float len, int mode, int grabbed) {
+        m_Gizmo3DVisible = visible; m_Gizmo3DCenter = center;
+        m_Gizmo3DLen = len; m_Gizmo3DMode = mode; m_Gizmo3DGrabbed = grabbed;
+    }
+    // в 3D-режиме плоский 2D-гизмо не рисуется (мешает навигации)
+    void SetEditor3D(bool on) { m_Editor3D = on; }
+
 private:
     Renderer* m_Renderer = nullptr;  // <-- храним указатель
     std::unique_ptr<Framebuffer> m_ViewportFB;
@@ -60,4 +68,10 @@ private:
     float m_DragStartAngle = 0.0f;
     float m_DragStartRotation = 0.0f;
     glm::vec2 m_DragStartScale = glm::vec2(1.0f);
+    bool m_Gizmo3DVisible = false;
+    glm::vec3 m_Gizmo3DCenter = glm::vec3(0.0f);
+    float m_Gizmo3DLen = 60.0f;
+    int m_Gizmo3DMode = 0;
+    int m_Gizmo3DGrabbed = -1;
+    bool m_Editor3D = false;
 };

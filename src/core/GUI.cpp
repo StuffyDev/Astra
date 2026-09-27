@@ -1176,6 +1176,7 @@ void GUI::RenderEditorPanels(EditorContext& ctx, float deltaTime) {
             ImVec2 avail = ImGui::GetContentRegionAvail();
             m_SceneSize = glm::vec2(avail.x, avail.y);
 
+            scene->SetEditor3D(m_3DEditor);
             scene->Render(camera, sceneManager, static_cast<int>(avail.x), static_cast<int>(avail.y),
                           m_HasGameCamera ? m_GameCamera.get() : nullptr);
             // мышь гейтим строго по rects изображения: любые "уточняющие" слагаемые

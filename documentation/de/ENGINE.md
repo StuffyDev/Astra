@@ -234,10 +234,25 @@ Die erste Ausbaustufe: perspektive Kamera, Mesh-Primitive, `.obj`-Import und ein
 Die 2D-Werkzeuge (Sprites, UI, Tilemap, Kollider, Skripte) laufen daneben unverändert weiter.
 
 **Einschalten**: `View ▸ 3D Mode`. Der Scene-Viewport wird dreidimensional:
-- **Rechtsklick + Mausbewegung** — Orbit um die Mitte der Ansicht (yaw frei, pitch auf ±89° begrenzt);
+- **Rechtsklick + Mausbewegung** — Orbit um den Fokus (Pitch auf ±89° begrenzt);
 - **Mausrad** — Abstand zum Fokus (50…40000 Welteinheiten);
-- 2D-Pan/-Zoom/-Gizmo sind in diesem Modus abgeschaltet (Ziehen mit der Maus kommt in der nächsten
-  Stufe), ausgewählt wird über die Hierarchy.
+- **Mittlere Maustaste** (oder Linksklick mit dem **Hand**-Werkzeug, Taste Q) — Pan: der Fokus
+  gleitet in der Bildebene;
+- **Linksklick** — Mesh-Objekt per Klick auswählen: vom Kameratrahl wird die AABB jedes Meshes der Szene
+  geprüft (das nächste gewinnt); ein Klick ins Leere hebt die Auswahl auf;
+- **F** — den Orbit-Fokus auf die ausgewählte Entity setzen.
+
+**Gizmo 3D**: am ausgewählten 3D-Objekt werden Achsen (Move), Ringe (Rotate) oder Achsen mit Griffen
+(Scale) gezeichnet — umgeschaltet mit den Werkzeugen **W / E / R** oder den Buttons der Toolbar.
+- Move: an der Achse X/Y/Z ziehen = verschieben nur längs dieser Achse; die Raute in der Mitte ziehen =
+  freie Bewegung in der Bildebene;
+- Rotate: einen Ring ziehen = Drehung um die zugehörige Achse, der Winkel wird in der Ringebene gemessen;
+- Scale: das Quadrat am Ende einer Achse ziehen = Skala nur dieser Achse; die Mitte ziehen = gleichmäßig.
+- **Ctrl** — Einrasten: Positionen an `GridSize`, Winkel an `SnapDegrees`. Das Gizmo behält eine konstante
+  Bildschirmgröße; Griffe, die kantig (= flach) gesehen werden, fangen keine Klicks ab
+  (der sichtbarste gewinnt).
+2D-Gizmo sowie 2D-Maus-Panning/-Zoom bleiben in diesem Modus abgeschaltet, damit sie die Navigation
+nicht stören.
 
 **Erzeugen**: `GameObject ▸ Create 3D ▸ Cube / Plane / Sphere / OBJ Model`.
 Im Inspector hat jede Entity die Checkbox **3D Object**: Position 3 / Rotation 3 (in Grad,
@@ -264,5 +279,5 @@ Alte Dateien laden unverändert — dort steht `Is3D: 0` als Standard.
 Abhängigkeitsliste der Szene, werden also genauso kopiert und verschlüsselt wie Texturen und Sounds
 (Abschnitt 11).
 
-**Weiterer 3D-Plan**: Gizmo und Ziehen im 3D, Picking per Klick, Schatten, Skelett-Animation,
-glTF statt OBJ, 3D-Physik.
+**Weiterer 3D-Plan**: Schatten, Skelett-Animation, glTF statt OBJ, Mesh Renderer getrennt vom Sprite,
+3D-Physik, orthografische 3D-Ansichten (vorn/oben/seitlich).

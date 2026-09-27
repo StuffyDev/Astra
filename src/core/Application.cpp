@@ -244,7 +244,7 @@ void Application::ProcessInput(float deltaTime) {
         m_EditorState = EditorState::Edit;
     }
 
-    // ===== 3D Mode: RMB — орбита, колесо — зум-дальность =====
+    // ===== 3D Mode: ПКМ — орбита, колесо — дистанция, ЛКМ — гизмо/выделение =====
     if (m_GUI->Is3DEditor()) {
         m_Camera->SetPerspective(true);
         if (!m_OrbitInit) {
@@ -252,22 +252,57 @@ void Application::ProcessInput(float deltaTime) {
             m_OrbitYaw = 40.0f; m_OrbitPitch = 28.0f; m_OrbitDist = 1500.0f;
             m_OrbitInit = true;
         }
+        const glm::vec2 vp = m_GUI->GetSceneSize();
         if (m_GUI->IsSceneHovered() && !m_GUI->IsAnyPopupOpen()) {
             if (m_Window->IsMouseButtonDown(GLFW_MOUSE_BUTTON_RIGHT)) {
                 glm::vec2 d = m_Window->GetMousePos() - m_Window->GetLastMousePos();
                 m_OrbitYaw -= d.x * 0.25f;
                 m_OrbitPitch = std::clamp(m_OrbitPitch + d.y * 0.25f, -89.0f, 89.0f);
             }
+            // пан фокуса: средней кнопкой или ЛКМ в инструменте Hand
+            const bool handTool = m_Scene->GetGizmoMode() == 3;
+            const bool panDrag = (m_Window->IsMouseButtonDown(GLFW_MOUSE_BUTTON_MIDDLE) ||
+                                  (handTool && m_Window->IsMouseButtonDown(GLFW_MOUSE_BUTTON_LEFT))) &&
+                                 vp.x > 1.0f && vp.y > 1.0f;
+            if (panDrag) {
+                glm::vec2 d = m_Window->GetMousePos() - m_Window->GetLastMousePos();
+                glm::vec3 view = m_Camera->ViewDirection();
+                glm::vec3 upRef(0.0f, 1.0f, 0.0f);
+                if (std::fabs(glm::dot(upRef, view)) > 0.98f) upRef = glm::vec3(0.0f, 0.0f, 1.0f);
+                glm::vec3 right = glm::normalize(glm::cross(upRef, view));
+                glm::vec3 up = glm::normalize(glm::cross(view, right));
+                float upp = m_Camera->WorldPerPixelAt(m_OrbitFocus, vp);
+                m_OrbitFocus += (right * (-d.x) + up * d.y) * upp;
+            }
             float scroll = m_Window->GetScrollOffset();
             if (scroll != 0.0f)
                 m_OrbitDist = std::clamp(m_OrbitDist * (1.0f - scroll * 0.1f), 50.0f, 40000.0f);
             Input::Get().FeedScroll(scroll);
+
+            // F — навести центр орбиты на выбранное
+            if (!io.WantCaptureKeyboard && m_Window->IsKeyDown(GLFW_KEY_F)) {
+                Entity* sel = m_SceneManager->GetSelectedEntityPtr();
+                if (sel) m_OrbitFocus = sel->is3D ? sel->pos3
+                                                  : glm::vec3(sel->transform.position, 0.0f);
+            }
+
+            // матрицы камеры должны соответствовать уже новым параметрам орбиты —
+            // иначе picking и гизмо работают на «прошлокадровой» камере
+            m_Camera->SetOrbit(m_OrbitFocus, m_OrbitYaw, m_OrbitPitch, m_OrbitDist);
+
+            HandleSceneMouse3D(vp, m_Scene->GetGizmoMode(), editing);
+        } else if (m_G3DDragging) {
+            m_G3DDragging = false;
+            m_G3DGrab = -1;
         }
         m_Camera->SetOrbit(m_OrbitFocus, m_OrbitYaw, m_OrbitPitch, m_OrbitDist);
         m_Window->UpdateLastMousePos();
         m_Window->ResetScrollOffset();
         return;
     }
+    m_G3DDragging = false;
+    m_G3DGrab = -1;
+    m_Scene->SetGizmo3D(false, glm::vec3(0.0f), 60.0f, 0, -1);
     m_OrbitInit = false;
     m_Camera->SetPerspective(false);
     m_Camera->ClearOrbit();
@@ -449,6 +484,215 @@ void Application::ProcessInput(float deltaTime) {
     }
 
     m_Window->UpdateLastMousePos();
+}
+
+// ===== 3D: выделение кликом и гизмо =====
+
+namespace {
+
+const glm::vec3& AxisVec(int a) {
+    static const glm::vec3 kAxes[3] = { glm::vec3(1, 0, 0), glm::vec3(0, 1, 0), glm::vec3(0, 0, 1) };
+    return kAxes[a < 0 ? 0 : (a > 2 ? 2 : a)];
+}
+
+float PointSegDistance(const glm::vec2& p, const glm::vec2& a, const glm::vec2& b) {
+    glm::vec2 ab = b - a;
+    float len2 = glm::dot(ab, ab);
+    if (len2 < 1e-9f) return glm::length(p - a);
+    float t = std::clamp(glm::dot(p - a, ab) / len2, 0.0f, 1.0f);
+    return glm::length(p - (a + ab * t));
+}
+
+} // namespace
+
+bool Application::PlaneHit(const glm::vec3& planePoint, const glm::vec3& planeNormal,
+                           const glm::vec2& mouse, const glm::vec2& vp, glm::vec3& out) const {
+    glm::vec3 ro, rd;
+    m_Camera->ScreenToRay(mouse, vp, ro, rd);
+    float denom = glm::dot(rd, planeNormal);
+    if (std::fabs(denom) < 1e-5f) return false;      // луч параллелен плоскости
+    float t = glm::dot(planePoint - ro, planeNormal) / denom;
+    out = ro + rd * t;
+    return true;
+}
+
+int Application::HitGizmo3D(const glm::vec3& center, float len, int mode,
+                            const glm::vec2& mouse, const glm::vec2& vp) const {
+    const float grabPx = 12.0f;
+    glm::vec2 c2;
+    if (!m_Camera->WorldToScreen(center, vp, c2)) return -1;
+
+    auto polylineHit = [&](const std::vector<glm::vec3>& pts) -> float {
+        float best = 1e18f;
+        bool havePrev = false;
+        glm::vec2 prev(0.0f);
+        for (const auto& p : pts) {
+            glm::vec2 s;
+            if (!m_Camera->WorldToScreen(p, vp, s)) { havePrev = false; continue; }
+            best = havePrev ? std::min(best, PointSegDistance(mouse, prev, s))
+                            : std::min(best, glm::length(s - mouse));
+            prev = s;
+            havePrev = true;
+        }
+        return best;
+    };
+
+    // центральный маркер — раньше осей: все оси сходятся в центре, иначе он был бы недостижим
+    if (mode != 1 && glm::length(mouse - c2) < grabPx * 0.9f) return 3;
+
+    // курсор может попасть и в «смазанную» с ребра ось, и в полноценную — берём то, что
+    // лучше видно (ось — перпендикулярнее взгляду, кольцо — перпендикулярнее своей оси);
+    // совсем тонкие с ребра ручки игнорируем, как в Unity
+    glm::vec3 view = m_Camera->ViewDirection();
+    int bestGrab = -1;
+    float bestScore = -1e18f;
+    for (int a = 0; a < 3; a++) {
+        float d;
+        if (mode == 1) {
+            glm::vec3 u = AxisVec((a + 1) % 3), v = AxisVec((a + 2) % 3);
+            std::vector<glm::vec3> ring;
+            for (int i = 0; i <= 32; i++) {
+                float t = (float)i / 32.0f * 2.0f * 3.14159265f;
+                ring.push_back(center + (u * cosf(t) + v * sinf(t)) * len);
+            }
+            d = polylineHit(ring);
+        } else {
+            d = polylineHit({ center, center + AxisVec(a) * len });
+        }
+        if (d >= grabPx) continue;
+        float align = std::fabs(glm::dot(AxisVec(a), view));   // 1 = ось смотрит в камеру
+        float visible = (mode == 1) ? align : (1.0f - align);
+        if (visible < 0.25f) continue;
+        float score = visible - d / grabPx * 0.3f;
+        if (score > bestScore) { bestScore = score; bestGrab = a; }
+    }
+    return bestGrab;
+}
+
+void Application::BeginGizmoDrag3D(Entity* e, int mode, int grab, const glm::vec2& mouse,
+                                   const glm::vec2& vp) {
+    m_G3DDragging = true;
+    m_G3DGrab = grab;
+    m_G3DMode = mode;
+    m_G3DEntity = e->id;
+    m_G3DCenter = e->pos3;
+    m_G3DStartPos3 = e->pos3;
+    m_G3DStartRot3 = e->rot3;
+    m_G3DStartScale3 = e->scale3;
+
+    glm::vec3 view = m_Camera->ViewDirection();
+    if (mode == 1) {
+        m_G3DPlaneNormal = AxisVec(grab);                     // кольцо в плоскости, перпендикулярной оси
+    } else if (mode == 0 && grab <= 2) {
+        // плоскость содержит ось и максимально «смотрит» на камеру:
+        // нормаль = составляющая направления взгляда, перпендикулярная оси
+        const glm::vec3& axis = AxisVec(grab);
+        glm::vec3 n = view - axis * glm::dot(view, axis);
+        m_G3DPlaneNormal = glm::length(n) > 1e-4f ? glm::normalize(n) : view;
+    } else {
+        m_G3DPlaneNormal = view;                              // экранная плоскость
+    }
+    if (!PlaneHit(m_G3DCenter, m_G3DPlaneNormal, mouse, vp, m_G3DStartPoint))
+        m_G3DStartPoint = m_G3DCenter;
+}
+
+void Application::UpdateGizmoDrag3D(const glm::vec2& mouse, const glm::vec2& vp) {
+    Entity* e = nullptr;
+    for (auto& it : m_SceneManager->GetEntities())
+        if (it.id == m_G3DEntity) { e = &it; break; }
+    if (!e) { m_G3DDragging = false; m_G3DGrab = -1; return; }
+
+    glm::vec3 hit;
+    if (!PlaneHit(m_G3DCenter, m_G3DPlaneNormal, mouse, vp, hit)) return;
+    const bool snap = Input::Get().IsKeyDown(GLFW_KEY_LEFT_CONTROL);
+
+    if (m_G3DMode == 0) {
+        glm::vec3 delta = hit - m_G3DStartPoint;
+        if (m_G3DGrab <= 2) {
+            const glm::vec3& axis = AxisVec(m_G3DGrab);
+            float along = glm::dot(delta, axis);
+            if (snap) along = std::round(along / AstraPrefs::GridSize) * AstraPrefs::GridSize;
+            e->pos3 = m_G3DStartPos3 + axis * along;
+        } else {
+            e->pos3 = m_G3DStartPos3 + delta;
+            if (snap) e->pos3 = glm::round(e->pos3 / AstraPrefs::GridSize) * AstraPrefs::GridSize;
+        }
+    } else if (m_G3DMode == 1) {
+        const glm::vec3& axis = AxisVec(m_G3DGrab);
+        glm::vec3 p0 = m_G3DStartPoint - m_G3DCenter, p1 = hit - m_G3DCenter;
+        if (glm::length(p0) < 1e-4f || glm::length(p1) < 1e-4f) return;
+        float deg = glm::degrees(std::atan2(glm::dot(glm::cross(p0, p1), axis), glm::dot(p0, p1)));
+        if (snap) deg = std::round(deg / AstraPrefs::SnapDegrees) * AstraPrefs::SnapDegrees;
+        e->rot3[m_G3DGrab] = m_G3DStartRot3[m_G3DGrab] + deg;
+    } else {
+        glm::vec3 rel = hit - m_G3DCenter, rel0 = m_G3DStartPoint - m_G3DCenter;
+        if (m_G3DGrab <= 2) {
+            float a = glm::dot(rel, AxisVec(m_G3DGrab));
+            float a0 = glm::dot(rel0, AxisVec(m_G3DGrab));
+            if (std::fabs(a0) < 1e-4f) return;
+            e->scale3[m_G3DGrab] = std::max(0.1f, m_G3DStartScale3[m_G3DGrab] * std::clamp(a / a0, 0.01f, 100.0f));
+        } else {
+            float d0 = glm::length(rel0);
+            if (d0 < 1e-4f) return;
+            float k = std::clamp(glm::length(rel) / d0, 0.01f, 100.0f);
+            e->scale3 = glm::max(m_G3DStartScale3 * k, glm::vec3(0.1f));
+        }
+    }
+}
+
+void Application::PickEntity3D(const glm::vec2& mouse, const glm::vec2& vp) {
+    glm::vec3 ro, rd;
+    m_Camera->ScreenToRay(mouse, vp, ro, rd);
+    auto& ents = m_SceneManager->GetEntities();
+    int best = -1;
+    float bestT = 1e18f;
+    for (size_t i = 0; i < ents.size(); i++) {
+        const Entity& e = ents[i];
+        if (!e.active || !e.is3D) continue;
+        glm::vec3 centerLocal, half;
+        if (!m_Renderer->GetMeshBounds(e.mesh.type, e.mesh.meshPath, centerLocal, half)) continue;
+        glm::mat4 inv = glm::inverse(Transforms::Model3D(e));
+        glm::vec4 o4 = inv * glm::vec4(ro, 1.0f);
+        glm::vec4 d4 = inv * glm::vec4(rd, 0.0f);
+        float speed = glm::length(glm::vec3(d4));            // масштаб луча в локальных координатах
+        if (speed < 1e-8f) continue;
+        glm::vec3 o(o4 / o4.w);
+        glm::vec3 d(glm::vec3(d4) / speed);
+        float t = 0.0f;
+        if (!Transforms::RayHitsBox(o - centerLocal, d, half, t)) continue;
+        float worldT = t / speed;                             // расстояние в мировых единицах
+        if (worldT > 0.0f && worldT < bestT) { bestT = worldT; best = (int)i; }
+    }
+    m_SceneManager->SetSelectedEntity(best);
+}
+
+void Application::HandleSceneMouse3D(const glm::vec2& vp, int rawMode, bool editing) {
+    Entity* sel = m_SceneManager->GetSelectedEntityPtr();
+    const bool sel3D = sel && sel->is3D;
+    const int mode = (rawMode >= 0 && rawMode <= 2) ? rawMode : -1;   // Hand/Tile — без гизмо
+    const glm::vec3 center = sel3D ? sel->pos3 : glm::vec3(0.0f);
+    const float len = 70.0f * m_Camera->WorldPerPixelAt(center, vp);
+
+    m_Scene->SetGizmo3D(sel3D && mode >= 0, center, len, mode < 0 ? 0 : mode,
+                        m_G3DDragging ? m_G3DGrab : -1);
+
+    if (!editing || mode < 0 || vp.x <= 1.0f || vp.y <= 1.0f) return;
+
+    const glm::vec2 mouse = m_GUI->GetSceneMousePos();
+    const bool pressed = Input::Get().WasMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT);
+    const bool down = m_Window->IsMouseButtonDown(GLFW_MOUSE_BUTTON_LEFT);
+
+    if (pressed) {
+        if (!m_G3DDragging && sel3D) {
+            int grab = HitGizmo3D(center, len, mode, mouse, vp);
+            if (grab >= 0) { BeginGizmoDrag3D(sel, mode, grab, mouse, vp); return; }
+        }
+        PickEntity3D(mouse, vp);
+        return;
+    }
+    if (!m_G3DDragging) return;
+    if (down) UpdateGizmoDrag3D(mouse, vp);
+    else { m_G3DDragging = false; m_G3DGrab = -1; }
 }
 
 void Application::HandleFileDrops() {

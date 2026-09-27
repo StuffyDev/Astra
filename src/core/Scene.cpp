@@ -28,8 +28,12 @@ void Scene::Render(Camera* camera, SceneManager* sceneManager, int width, int he
     m_Renderer->RenderEntities(sceneManager->GetEntities(), camera);
     m_Renderer->RenderParticles(sceneManager->GetEntities(), camera);
     m_Renderer->RenderColliders(sceneManager->GetEntities(), camera);
-    m_Renderer->RenderGizmo(sceneManager->GetSelectedEntityPtr(), sceneManager->GetEntities(),
-                             camera, width, height, m_GizmoMode, m_GizmoAxis);
+    if (m_Gizmo3DVisible) {
+        m_Renderer->RenderGizmo3D(m_Gizmo3DCenter, m_Gizmo3DLen, m_Gizmo3DMode, m_Gizmo3DGrabbed, camera);
+    } else if (!m_Editor3D) {
+        m_Renderer->RenderGizmo(sceneManager->GetSelectedEntityPtr(), sceneManager->GetEntities(),
+                                 camera, width, height, m_GizmoMode, m_GizmoAxis);
+    }
 
     if (gameCamera) {
         // Рамка того, что видит game-камера (как в Unity)

@@ -38,6 +38,17 @@ public:
 
     glm::vec2 ScreenToWorld(const glm::vec2& screenPos, float screenWidth, float screenHeight) const;
 
+    // ===== 3D-хелперы (в пикселях вьюпорта, y вниз — как в ImGui) =====
+    // Мировая точка -> экран; false, если точка за камерой (w <= 0)
+    bool WorldToScreen(const glm::vec3& world, const glm::vec2& vpSize, glm::vec2& outScreen) const;
+    // Точка на экране -> луч в мире (начало + нормализованное направление)
+    void ScreenToRay(const glm::vec2& screen, const glm::vec2& vpSize,
+                     glm::vec3& origin, glm::vec3& dir) const;
+    // Направление взгляда камеры
+    glm::vec3 ViewDirection() const;
+    // Мировых единиц на один экранный пиксель на глубине точки world
+    float WorldPerPixelAt(const glm::vec3& world, const glm::vec2& vpSize) const;
+
     void Pan(const glm::vec2& delta);
     void Zoom(float factor);
 

@@ -230,10 +230,23 @@ Stage one: a perspective camera, mesh primitives, `.obj` import and simple light
 The 2D tools (sprites, UI, tilemap, colliders, scripts) keep working next to it.
 
 **Enable**: `View ▸ 3D Mode`. The Scene viewport turns three-dimensional:
-- **RMB + mouse movement** — orbit around the view center (yaw is free, pitch clamped to ±89°);
-- **mouse wheel** — the distance to the focus point (50…40000 world units);
-- 2D pan/zoom/gizmo are disabled in this mode (mouse dragging comes in the next stage),
-  selection works in the Hierarchy.
+- **RMB + mouse movement** — orbit around the focus (pitch clamped to ±89°);
+- **mouse wheel** — the distance to the focus (50…40000 world units);
+- **MMB** (or LMB with the **Hand** tool, key Q) — pan: the focus slides in the screen plane;
+- **LMB** — select a mesh object by clicking: a ray is cast from the camera against each mesh's AABB,
+  the one nearest the camera wins; clicking empty space clears the selection;
+- **F** — move the orbit focus onto the selected entity.
+
+**3D gizmo**: the selected 3D entity shows axes (Move), rings (Rotate) or axes with handles (Scale),
+switched with the **W / E / R** tools or the toolbar buttons.
+- Move: drag an X/Y/Z axis to translate along that axis only; drag the centre diamond to move freely
+  in the screen plane;
+- Rotate: drag a ring to rotate about its axis, the angle is measured in the ring's plane;
+- Scale: drag the square at the end of an axis to scale that one axis; drag the centre for a uniform scale.
+- **Ctrl** snaps — positions to `GridSize`, angles to `SnapDegrees`. The gizmo keeps a constant on-screen
+  size, and a handle seen edge-on does not steal the click (the most visible one wins).
+
+The 2D gizmo and 2D mouse pan/zoom stay off in 3D mode so they don't fight navigation.
 
 **Creating**: `GameObject ▸ Create 3D ▸ Cube / Plane / Sphere / OBJ Model`.
 Any entity's Inspector has a **3D Object** checkbox: Position 3 / Rotation 3 (in degrees, order X→Y→Z) /
@@ -258,5 +271,5 @@ Old files load unchanged — there `Is3D: 0` is the default.
 **Game build**: the `.obj` from `MeshPath` and the image from `MeshTex` join the scene's dependency list,
 so they are copied and encrypted exactly like textures and sounds (section 11).
 
-**Next on the 3D plan**: a 3D gizmo and dragging, click picking, shadows, skeletal animation,
-glTF instead of OBJ, 3D physics.
+**Next on the 3D plan**: shadows, skeletal animation, glTF instead of OBJ, separating Mesh Renderer from
+Sprite, 3D physics, orthographic 3D camera views (front/top/side).

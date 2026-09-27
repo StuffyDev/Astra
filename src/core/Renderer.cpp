@@ -20,6 +20,24 @@
 Renderer::Renderer() = default;
 Renderer::~Renderer() { Shutdown(); }
 
+static const char* kLine3DVert = R"(
+#version 460 core
+layout(location = 0) in vec3 a_Pos;
+uniform mat4 u_ViewProj;
+void main() {
+    gl_Position = u_ViewProj * vec4(a_Pos, 1.0);
+}
+)";
+
+static const char* kLine3DFrag = R"(
+#version 460 core
+out vec4 FragColor;
+uniform vec3 u_Color;
+void main() {
+    FragColor = vec4(u_Color, 1.0);
+}
+)";
+
 static const char* kMesh3DVert = R"(
 #version 460 core
 layout(location = 0) in vec3 a_Pos;
@@ -74,7 +92,9 @@ void Renderer::Init() {
 
     CreateShaders();
     m_Mesh3DShader = std::make_unique<Shader>(kMesh3DVert, kMesh3DFrag);
+    m_Line3DShader = std::make_unique<Shader>(kLine3DVert, kLine3DFrag);
     Setup3D();
+    SetupGizmo3DBuffers();
 }
 
 void Renderer::CreateShaders() {
@@ -108,6 +128,8 @@ void Renderer::Shutdown() {
     glDeleteBuffers(1, &m_GizmoVBO);
     glDeleteVertexArrays(1, &m_ColliderVAO);
     glDeleteBuffers(1, &m_ColliderVBO);
+    glDeleteVertexArrays(1, &m_Gizmo3DVAO);
+    glDeleteBuffers(1, &m_Gizmo3DVBO);
 }
 
 // ============ GRID ============
@@ -265,6 +287,15 @@ static Mesh3DData BuildSphere() {
 Renderer::Mesh3D Renderer::MakeMesh3D(const std::vector<float>& verts, const std::vector<uint32_t>& idx) {
     Mesh3D m;
     m.indexCount = (int)idx.size();
+    if (!verts.empty()) {
+        m.boundsMin = glm::vec3(1e18f);
+        m.boundsMax = glm::vec3(-1e18f);
+    }
+    for (size_t i = 0; i + 2 < verts.size(); i += 8) {
+        glm::vec3 p(verts[i], verts[i + 1], verts[i + 2]);
+        m.boundsMin = glm::min(m.boundsMin, p);
+        m.boundsMax = glm::max(m.boundsMax, p);
+    }
     glGenVertexArrays(1, &m.vao);
     glBindVertexArray(m.vao);
     glGenBuffers(1, &m.vbo);
@@ -365,6 +396,123 @@ void Renderer::Setup3D() {
     upload(BuildSphere(), m_PrimSphere);
 }
 
+void Renderer::SetupGizmo3DBuffers() {
+    glGenVertexArrays(1, &m_Gizmo3DVAO);
+    glGenBuffers(1, &m_Gizmo3DVBO);
+    glBindVertexArray(m_Gizmo3DVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, m_Gizmo3DVBO);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glBindVertexArray(0);
+}
+
+void Renderer::RenderLines3D(const std::vector<float>& xyz, const glm::vec3& color, Camera* camera) {
+    if (xyz.size() < 6) return;
+    m_Line3DShader->Use();
+    m_Line3DShader->SetMat4("u_ViewProj", camera->GetViewProjectionMatrix());
+    m_Line3DShader->SetVec3("u_Color", color);
+    glBindBuffer(GL_ARRAY_BUFFER, m_Gizmo3DVBO);
+    glBufferData(GL_ARRAY_BUFFER, xyz.size() * sizeof(float), xyz.data(), GL_DYNAMIC_DRAW);
+    glBindVertexArray(m_Gizmo3DVAO);
+    glDrawArrays(GL_LINES, 0, static_cast<int>(xyz.size() / 3));
+    glBindVertexArray(0);
+}
+
+bool Renderer::GetMeshBounds(int meshType, const std::string& objPath, glm::vec3& center, glm::vec3& half) {
+    center = glm::vec3(0.0f);
+    switch (meshType) {
+        case 1: half = glm::vec3(0.5f, 0.02f, 0.5f); return true;  // плоскость — почти без толщины
+        case 2: half = glm::vec3(0.5f); return true;
+        case 3: {
+            const Mesh3D& m = GetObjMesh(objPath);
+            if (m.indexCount == 0) return false;
+            center = (m.boundsMin + m.boundsMax) * 0.5f;
+            half = (m.boundsMax - m.boundsMin) * 0.5f;
+            return true;
+        }
+        default: half = glm::vec3(0.5f); return true;
+    }
+}
+
+// Гизмо постоянного экранного размера: len уже пересчитан в мировые единицы вызывающим кодом
+void Renderer::RenderGizmo3D(const glm::vec3& center, float len, int mode, int grabbed, Camera* camera) {
+    const glm::vec3 axisCol[3] = {
+        { 1.00f, 0.32f, 0.32f },  // X
+        { 0.45f, 0.95f, 0.35f },  // Y
+        { 0.35f, 0.62f, 1.00f },  // Z
+    };
+    const glm::vec3 highlight(1.0f, 1.0f, 1.0f);
+    auto colorFor = [&](int axis) {
+        return (axis == grabbed || grabbed == 3) ? highlight : axisCol[axis];
+    };
+    auto axisVec = [](int a) {
+        return a == 0 ? glm::vec3(1, 0, 0) : (a == 1 ? glm::vec3(0, 1, 0) : glm::vec3(0, 0, 1));
+    };
+
+    // базис камеры — для «свободного» перемещения и ручек в плоскости экрана
+    glm::vec3 view = camera->ViewDirection();
+    glm::vec3 upRef(0.0f, 1.0f, 0.0f);
+    if (std::fabs(glm::dot(upRef, view)) > 0.98f) upRef = glm::vec3(0.0f, 0.0f, 1.0f);
+    glm::vec3 right = glm::normalize(glm::cross(upRef, view));
+    glm::vec3 up = glm::normalize(glm::cross(view, right));
+
+    glDisable(GL_DEPTH_TEST);
+
+    auto diamond = [&](const glm::vec3& c, float r, int axis) {
+        std::vector<float> l;
+        glm::vec3 p[4] = { c + right * r, c + up * r, c - right * r, c - up * r };
+        for (int i = 0; i < 4; i++) {
+            const glm::vec3& a = p[i];
+            const glm::vec3& b = p[(i + 1) % 4];
+            l.insert(l.end(), { a.x, a.y, a.z, b.x, b.y, b.z });
+        }
+        RenderLines3D(l, colorFor(axis), camera);
+    };
+
+    if (mode == 1) {
+        // кольца вращения: нормаль кольца — соответствующая ось
+        for (int a = 0; a < 3; a++) {
+            glm::vec3 pu = axisVec((a + 1) % 3), pv = axisVec((a + 2) % 3);
+            const int steps = 28;
+            std::vector<float> l;
+            for (int i = 0; i < steps; i++) {
+                float t0 = (float)i / steps * 2.0f * 3.14159265f;
+                float t1 = (float)(i + 1) / steps * 2.0f * 3.14159265f;
+                glm::vec3 p0 = center + (pu * cosf(t0) + pv * sinf(t0)) * len;
+                glm::vec3 p1 = center + (pu * cosf(t1) + pv * sinf(t1)) * len;
+                l.insert(l.end(), { p0.x, p0.y, p0.z, p1.x, p1.y, p1.z });
+            }
+            RenderLines3D(l, colorFor(a), camera);
+        }
+    } else {
+        for (int a = 0; a < 3; a++) {
+            glm::vec3 dirV = axisVec(a);
+            glm::vec3 tip = center + dirV * len;
+            std::vector<float> l = { center.x, center.y, center.z, tip.x, tip.y, tip.z };
+            if (mode == 2) {
+                // ручка масштаба — квадрат на конце оси
+                float r = len * 0.1f;
+                glm::vec3 p[4] = { tip + right * r, tip + up * r, tip - right * r, tip - up * r };
+                for (int i = 0; i < 4; i++) {
+                    const glm::vec3& A = p[i];
+                    const glm::vec3& B = p[(i + 1) % 4];
+                    l.insert(l.end(), { A.x, A.y, A.z, B.x, B.y, B.z });
+                }
+            } else {
+                // стрелка: две «усики» назад от кончика
+                float r = len * 0.09f;
+                l.insert(l.end(), { tip.x, tip.y, tip.z, (tip - dirV * r + right * r * 0.6f).x,
+                                    (tip - dirV * r + right * r * 0.6f).y, (tip - dirV * r + right * r * 0.6f).z });
+                l.insert(l.end(), { tip.x, tip.y, tip.z, (tip - dirV * r - right * r * 0.6f).x,
+                                    (tip - dirV * r - right * r * 0.6f).y, (tip - dirV * r - right * r * 0.6f).z });
+            }
+            RenderLines3D(l, colorFor(a), camera);
+        }
+        diamond(center, len * 0.12f, 3);   // свободное перемещение / равномерный масштаб
+    }
+    // 2D-проходы идут после гизмо и глубины не используют — оставляем тест глубин выключенным
+}
+
 void Renderer::RenderEntities3D(const std::vector<Entity>& entities, Camera* camera) {
     bool any = false;
     for (const auto& e : entities) if (e.is3D && e.active) { any = true; break; }
@@ -383,12 +531,7 @@ void Renderer::RenderEntities3D(const std::vector<Entity>& entities, Camera* cam
 
     for (const auto& e : entities) {
         if (!e.is3D || !e.active) continue;
-        glm::mat4 model(1.0f);
-        model = glm::translate(model, e.pos3);
-        model = glm::rotate(model, glm::radians(e.rot3.x), glm::vec3(1, 0, 0));
-        model = glm::rotate(model, glm::radians(e.rot3.y), glm::vec3(0, 1, 0));
-        model = glm::rotate(model, glm::radians(e.rot3.z), glm::vec3(0, 0, 1));
-        model = glm::scale(model, e.scale3);
+        glm::mat4 model = Transforms::Model3D(e);
         m_Mesh3DShader->SetMat4("u_Model", model);
         m_Mesh3DShader->SetVec3("u_Color", e.mesh.color);
 

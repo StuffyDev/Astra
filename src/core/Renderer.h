@@ -26,6 +26,11 @@ public:
     void RenderEntities(const std::vector<Entity>& entities, Camera* camera);
     void RenderTilemaps(const std::vector<Entity>& entities, Camera* camera);
     void RenderEntities3D(const std::vector<Entity>& entities, Camera* camera);
+    // 3D-гизмо: оси (mode 0), кольца вращения (1) или оси с ручками масштаба (2).
+    // len — длина оси в мировых единицах; grabbed: -1 нет, 0..2 ось, 3 центр/равномерно
+    void RenderGizmo3D(const glm::vec3& center, float len, int mode, int grabbed, Camera* camera);
+    // Границы меша в ЛОКАЛЬНЫХ координатах (центр + половинный размер) — для выделения кликом
+    bool GetMeshBounds(int meshType, const std::string& objPath, glm::vec3& center, glm::vec3& half);
     void RenderParticles(const std::vector<Entity>& entities, Camera* camera);
     void RenderColliders(const std::vector<Entity>& entities, Camera* camera);
     // mode: 0 = Move, 1 = Rotate, 2 = Scale; activeAxis: -1 = не перетаскивать (0=X,1=Y,2=центр/дуга)
@@ -51,8 +56,14 @@ private:
     std::unique_ptr<Shader> m_SpriteTextureShader;
     std::unique_ptr<Shader> m_CircleTextureShader;
     std::unique_ptr<Shader> m_Mesh3DShader;
+    std::unique_ptr<Shader> m_Line3DShader;
 
-    struct Mesh3D { GLuint vao = 0, vbo = 0, ebo = 0; int indexCount = 0; };
+    struct Mesh3D {
+        GLuint vao = 0, vbo = 0, ebo = 0;
+        int indexCount = 0;
+        glm::vec3 boundsMin = glm::vec3(0.0f);
+        glm::vec3 boundsMax = glm::vec3(0.0f);
+    };
     Mesh3D m_PrimCube, m_PrimPlane, m_PrimSphere;
     std::unordered_map<std::string, Mesh3D> m_ObjCache;
     Mesh3D MakeMesh3D(const std::vector<float>& verts, const std::vector<uint32_t>& idx);
@@ -62,6 +73,7 @@ private:
     GLuint m_QuadVAO = 0, m_QuadVBO = 0, m_QuadEBO = 0;
     GLuint m_BatchVAO = 0, m_BatchVBO = 0;
     GLuint m_GizmoVAO = 0, m_GizmoVBO = 0;
+    GLuint m_Gizmo3DVAO = 0, m_Gizmo3DVBO = 0;
     GLuint m_ColliderVAO = 0, m_ColliderVBO = 0;
     GLuint m_WhiteTexture = 0;
 
@@ -78,6 +90,8 @@ private:
     void SetupQuad();
     void SetupBatch();
     void Setup3D();
+    void SetupGizmo3DBuffers();
+    void RenderLines3D(const std::vector<float>& xyz, const glm::vec3& color, Camera* camera);
     void SetupGizmoBuffers();
     void SetupColliderBuffers();
     void SetupWhiteTexture();

@@ -66,4 +66,27 @@ private:
     void ConsumePhysicsEvents();
     void PaintTileAtMouse();
     void SeedDemoScene();
+
+    // ===== 3D: выделение кликом + гизмо (только в 3D Mode) =====
+    void HandleSceneMouse3D(const glm::vec2& viewportSize, int mode, bool editing);
+    int HitGizmo3D(const glm::vec3& center, float len, int mode,
+                   const glm::vec2& mouse, const glm::vec2& viewportSize) const;
+    bool PlaneHit(const glm::vec3& planePoint, const glm::vec3& planeNormal,
+                  const glm::vec2& mouse, const glm::vec2& viewportSize, glm::vec3& out) const;
+    void BeginGizmoDrag3D(Entity* e, int mode, int grab, const glm::vec2& mouse,
+                          const glm::vec2& viewportSize);
+    void UpdateGizmoDrag3D(const glm::vec2& mouse, const glm::vec2& viewportSize);
+    void PickEntity3D(const glm::vec2& mouse, const glm::vec2& viewportSize);
+
+    bool m_G3DDragging = false;
+    int m_G3DGrab = -1;      // 0..2 — ось, 3 — центр (free move / uniform scale)
+    int m_G3DMode = 0;       // 0 move, 1 rotate, 2 scale
+    uint32_t m_G3DEntity = 0;
+    glm::vec3 m_G3DCenter = glm::vec3(0.0f);
+    float m_G3DLen = 60.0f;
+    glm::vec3 m_G3DPlaneNormal = glm::vec3(0.0f, 0.0f, 1.0f);
+    glm::vec3 m_G3DStartPoint = glm::vec3(0.0f);
+    glm::vec3 m_G3DStartPos3 = glm::vec3(0.0f);
+    glm::vec3 m_G3DStartRot3 = glm::vec3(0.0f);
+    glm::vec3 m_G3DStartScale3 = glm::vec3(1.0f);
 };
