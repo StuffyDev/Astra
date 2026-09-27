@@ -61,6 +61,10 @@ protected:
     void LookAt3D(const glm::vec3& worldTarget);      // развернуть -Z объекта на цель (как в Unity)
     void SetGravityEnabled3D(bool on);
     bool Is3D() const;
+    // То же для ЧУЖОЙ сущности (inside Script имя перекрывает глобальную функцию,
+    // поэтому нужны перегрузки-члены, а не ::AddForce3D(other, ...))
+    void AddForceTo3D(Entity* target, const glm::vec3& impulse);
+    void SetVelocityOf3D(Entity* target, const glm::vec3& v);
 };
 
 // Время кадра/сессии — доступно из любого места скрипта

@@ -503,7 +503,7 @@ void Application::ProcessInput(float deltaTime) {
     }
 
     // Инструмент Tile (T): ЛКМ — положить тайл, Shift+ЛКМ — стереть
-    if (editing && m_Scene->GetGizmoMode() == 4 && m_GUI->IsSceneHovered() && !m_GUI->IsAnyPopupOpen() &&
+    if (editing && m_Scene->GetGizmoMode() == 4 && m_GUI->IsSceneImageHot() && !m_GUI->IsAnyPopupOpen() &&
         ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
         PaintTileAtMouse();
     }

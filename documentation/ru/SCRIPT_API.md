@@ -178,6 +178,7 @@ Settings ▸ Physics ▸ Pixels per meter), поэтому `Gravity3D()` по у
 | `void AddForce3D(const glm::vec3&)` | импульс: `velocity += impulse / mass` |
 | `void SetGravityEnabled3D(bool)` | включить/выключить гравитацию (тоже создаёт Rigidbody) |
 | `void LookAt3D(const glm::vec3&)` | развернуть объект `-Z` на цель (как `transform.LookAt` в Unity) |
+| `void AddForceTo3D(Entity*, const glm::vec3&)` / `void SetVelocityOf3D(Entity*, const glm::vec3&)` | то же для **чужой** сущности |
 
 Глобальные функции:
 
@@ -228,6 +229,8 @@ SCRIPT_ENTRY(Bounce3D)
 - Смена `scriptPath` или `.cpp` на лету пересоздаёт инстанс (`Start()` заново).
 - Физика дочерних Rigidbody не симулируется — их двигает родитель.
 - `timeScale=0` + `UnscaledDelta()` — единственный способ что-то делать на паузе.
+- Внутри методов `Script` имя глобальной функции перекрывается членом с тем же именем:
+  `AddForce3D(other, v)` не скомпилируется — используй `AddForceTo3D(other, v)` или `::AddForce3D(other, v)`.
 - 3D-сущность в 2D-сцене не видна в Scene-вью (и наоборот): режим — свойство сцены, `View ▸ 3D Scene`.
 - `Translate3D` не учитывает поворот родителя — для «локального» движения пересчитывай сам.
 - `Raycast3D` без `Collider (3D)` использует габарит меша: для повёрнутой модели он шире реального.

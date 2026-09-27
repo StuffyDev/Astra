@@ -303,6 +303,9 @@ bool Script::Is3D() const {
     return e && e->is3D;
 }
 
+void Script::AddForceTo3D(Entity* target, const glm::vec3& impulse) { ::AddForce3D(target, impulse); }
+void Script::SetVelocityOf3D(Entity* target, const glm::vec3& v) { ::SetVelocity3D(target, v); }
+
 // ===== глобальные 3D-функции =====
 glm::vec3 Gravity3D() { return Physics3D::Gravity; }
 
